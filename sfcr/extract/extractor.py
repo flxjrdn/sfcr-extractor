@@ -19,6 +19,7 @@ from sfcr.extract.schema import (
 from sfcr.extract.verify import verify_extraction
 from sfcr.ingest.schema import IngestionResult
 from sfcr.llm.llm_text_client import LLMTextClient
+from sfcr.utils.pdf_page_offset import detect_pdf_page_offset
 from sfcr.utils.textnorm import normalize_hyphenation
 
 # ---------- field taxonomy ----------
@@ -272,6 +273,13 @@ def extract_for_document(
     )
     field_defs = load_fields(fields_yaml)
 
+    offset = detect_pdf_page_offset(str(pdf_path))
+    print(f"Determining page offset for f{doc_id}")
+    print("PDF pages:", offset.page_count)
+    print("Arabic offset:", offset.offset_arabic)
+    print("Roman offset:", offset.offset_roman)
+    print("Confidence:", offset.confidence)
+
     results: List[VerifiedExtraction] = []
 
     for f in field_defs:
@@ -300,6 +308,10 @@ def extract_for_document(
 
         print(f.id)  # TODO delete
         start, end = span
+        if offset.offset_arabic is not None:
+            start += offset.offset_arabic
+            end += offset.offset_arabic
+
         section_text, page_texts = extract_text_pages(pdf_path, start, end)
         section_text, page_texts = (
             normalize_hyphenation(section_text),

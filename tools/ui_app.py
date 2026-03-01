@@ -68,7 +68,6 @@ def main():
 
     # Filters
     st.sidebar.header("Filter")
-    show_only_failed = st.sidebar.checkbox("Zeige nur unverifizierte Werte")
     show_source = st.sidebar.checkbox("Zeige Text-Quelle")
 
     # colA, colB, colC = st.columns([2, 2, 1])
@@ -126,8 +125,6 @@ def main():
 
     # Table
     rows = get_extractions_for_doc(doc_id, db_path)
-    if show_only_failed:
-        rows = [r for r in rows if not r.get("verified")]
 
     st.subheader("Werte")
     if not rows:

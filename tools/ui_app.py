@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+import pandas as pd
 import streamlit as st
 
 from sfcr.db import (
@@ -15,6 +16,17 @@ from sfcr.db import (
     load_extractions_from_dir,
     load_summaries_from_dir,
 )
+
+# Field label mapping
+FIELD_LABELS = {
+    "scr_total": "SCR",
+    "mcr_total": "MCR",
+    "sii_ratio_pct": "Solvabilitätsquote",
+    "eof_total": "Eigenmittel gesamt",
+    "eof_t1": "Eigenmittel Tier 1",
+    "eof_t2": "Eigenmittel Tier 2",
+    "tech_provisions_total": "vt. Rückstellung",
+}
 
 
 # Optional: render PDF page images
@@ -42,6 +54,41 @@ def safe_rerun():
         raise RuntimeError("This version of Streamlit has no rerun method.")
 
 
+# Helper: display a nice field label
+def display_field_name(field_id: str) -> str:
+    return FIELD_LABELS.get(field_id, field_id)
+
+
+# Helper: human-readable issue/notes text
+def display_issue_text(row: dict) -> str:
+    issues = row.get("issues") or ""
+    verified = row.get("verified")
+    status = row.get("status") or ""
+
+    if issues:
+        return str(issues)
+    if verified is False:
+        if status == "not_found":
+            return "Wert konnte nicht eindeutig im Bericht gefunden werden."
+        if status == "ambiguous":
+            return "Wert konnte nicht eindeutig verifiziert werden."
+        return "Wert ist nicht verifiziert."
+    return ""
+
+
+def format_value_de(value: str | int | float | None, unit: str = "") -> str:
+    if value is None:
+        return "—"
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return f"{value} {unit}".strip()
+
+    # German notation: 1.234.567,89
+    formatted = f"{num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{formatted} {unit}".strip()
+
+
 def main():
     st.set_page_config(page_title="SFCR Extractor Viewer", layout="wide")
     st.title("SFCR Viewer")
@@ -59,27 +106,20 @@ def main():
 
     display_name = st.sidebar.selectbox("Dokument auswählen", display_names, index=0)
     doc_id = None
-    pdf_path = None
     for d in docs:
         if d["display_name"] == display_name:
             doc_id = d["doc_id"]
-            pdf_path = d["pdf_path"]
             break
 
     # Filters
     st.sidebar.header("Filter")
     show_source = st.sidebar.checkbox("Zeige Text-Quelle")
 
-    # colA, colB, colC = st.columns([2, 2, 1])
-
-    # with colA:
     if st.sidebar.button(
         "1) Init DB", help="Create SQLite with tables/views if missing"
     ):
         p = init_db(db_path)
         st.success(f"DB initialized at {p}")
-
-    # with colB:
     if st.sidebar.button(
         "2) Load from JSONL", help="Load all *.extractions.jsonl into DB"
     ):
@@ -87,8 +127,6 @@ def main():
         _, _ = load_extractions_from_dir()
         _, _ = load_summaries_from_dir()
         st.success(f"Loaded {n_docs} docs")
-
-    # with colC:
     if st.sidebar.button("↻ Refresh"):
         safe_rerun()
 
@@ -133,45 +171,48 @@ def main():
         )
         st.stop()
 
-    # Summary chips
     total = len(rows)
     verified = sum(1 for r in rows if r.get("verified"))
-    st.write(f"Verified: **{verified}/{total}**")
+    st.write(f"Verifizierte Werte: **{verified}/{total}**")
 
-    # Render table with expanders
+    table_rows = []
     for r in rows:
-        ok = "✅" if r.get("verified") else "❌"
-        field = r["field_id"]
         val = r.get("value_canonical")
         unit = r.get("unit") or ""
-        conf = r.get("confidence")
-        page = r.get("page")
-        status = r.get("status") or ""
-        issues = r.get("issues") or ""
-        header = f"{ok} **{field}** — {val if val is not None else '—'} {unit}  ·  p.{page or '—'}  ·  conf={conf or 0:.2f}  ·  {status}"
-        with st.expander(header, expanded=False):
-            c1, c2 = st.columns([2, 3])
-            with c1:
+        value_display = format_value_de(val, unit)
+        table_rows.append(
+            {
+                "Feld": display_field_name(r["field_id"]),
+                "Wert": value_display,
+                "Hinweise": display_issue_text(r),
+            }
+        )
+
+    df = pd.DataFrame(table_rows)
+
+    # Right-align the value column using HTML rendering (Streamlit dataframe ignores Styler alignment)
+    styled = df.style.set_properties(subset=["Wert"], **{"text-align": "right"})
+
+    st.markdown(
+        styled.to_html(index=False),
+        unsafe_allow_html=True,
+    )
+
+    if show_source:
+        st.subheader("Textquellen")
+        for r in rows:
+            source_text = r.get("source_text")
+            issues = r.get("issues") or ""
+            if not source_text and not issues:
+                continue
+            header = f"{display_field_name(r['field_id'])}"
+            with st.expander(header, expanded=False):
+                st.write(f"Status: {r.get('status') or '—'}")
                 st.write(f"Scale applied: `{r.get('scale_applied')}`")
-                if show_source and r.get("source_text"):
-                    st.code(r["source_text"])
+                if source_text:
+                    st.code(source_text)
                 if issues:
                     st.warning(issues)
-            with c2:
-                if pdf_path and page:
-                    img = render_pdf_page(Path(pdf_path), int(page))
-                    if img:
-                        st.image(
-                            img,
-                            caption=f"{Path(pdf_path).name} — page {page}",
-                            width="stretch",
-                        )
-                    else:
-                        st.info(
-                            "Page preview unavailable (no PDF path or PyMuPDF missing)."
-                        )
-                else:
-                    st.info("No page evidence recorded.")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sfcr.extract.schema import Evidence, ExtractionLLM
 from sfcr.extract.verify import (
+    _VALUE_NOT_FOUND_IN_SOURCE_TEXT,
     _coerce_scale,
     apply_scale,
     cross_checks,
@@ -159,7 +160,7 @@ def test_verify_value_not_found_in_source_text_penalizes_confidence():
     )
     out = verify_extraction(doc_id="d", extr=extr, typical_scale=1000.0)
     assert out.verifier_notes is not None
-    assert "value_not_found_in_source_text" in out.verifier_notes
+    assert _VALUE_NOT_FOUND_IN_SOURCE_TEXT in out.verifier_notes
     assert out.confidence < 0.5
     assert out.verified is False
 

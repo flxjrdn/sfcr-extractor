@@ -60,6 +60,10 @@ _CURRENT_PREV_RE = re.compile(
 )
 
 
+_VALUE_NOT_FOUND_IN_SOURCE_TEXT = "Wert konnte in Textquelle nicht verifiziert werden"
+_LOOKS_LIKE_PREV_YEAR_VALUE = "Wert stammt eventuell aus dem Vorjahr"
+
+
 @dataclass
 class ParsedNumber:
     value: float
@@ -265,13 +269,13 @@ def verify_extraction(
 
         if not ok_match:
             # Not fatal (LLM might have normalized formatting), but should reduce confidence
-            notes.append("value_not_found_in_source_text")
+            notes.append(_VALUE_NOT_FOUND_IN_SOURCE_TEXT)
 
         # If we detect X(Y) and model picked Y (prev) instead of X, flag it
         if pair and abs(float(extr.value_unscaled) - pair[1]) <= 1e-6 * max(
             1.0, abs(pair[1])
         ):
-            notes.append("looks_like_prev_year_value")
+            notes.append(_LOOKS_LIKE_PREV_YEAR_VALUE)
 
     # --- Confidence ---------------------------------------------------------
     # Start low; add points for strong evidence.
@@ -286,9 +290,9 @@ def verify_extraction(
         conf += 0.10
 
     # penalize issues
-    if "value_not_found_in_source_text" in notes:
+    if _VALUE_NOT_FOUND_IN_SOURCE_TEXT in notes:
         conf -= 0.35
-    if "looks_like_prev_year_value" in notes:
+    if _LOOKS_LIKE_PREV_YEAR_VALUE in notes:
         conf -= 0.25
 
     conf = round(conf, 2)
@@ -300,14 +304,14 @@ def verify_extraction(
         if value_canon is not None and abs(value_canon - expected) <= tol:
             conf = min(1.0, conf + 0.15)
         else:
-            notes.append(f"ratio_mismatch expected={expected} got={value_canon}")
+            notes.append(f"Erwartetes Verhältnis ist {expected} anstatt {value_canon}")
 
     # Decide verified: in your system "verified" really means "passed basic checks"
     blocking = any(
         n.startswith(block_text)
         for block_text in (
-            "value_not_found_in_source_text",
-            "looks_like_prev_year_value",
+            _VALUE_NOT_FOUND_IN_SOURCE_TEXT,
+            _LOOKS_LIKE_PREV_YEAR_VALUE,
         )
         for n in notes
     )

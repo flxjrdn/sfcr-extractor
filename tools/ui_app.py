@@ -8,20 +8,22 @@ import streamlit as st
 
 from sfcr.db import (
     db_path_default,
-    get_extractions_for_doc,
+    get_final_values_for_doc,
     get_summaries_for_doc,
     init_db,
     list_documents,
     load_catalog,
     load_extractions_from_dir,
     load_summaries_from_dir,
+    rebuild_final_values,
 )
 
 # Field label mapping
 FIELD_LABELS = {
     "scr_total": "SCR",
     "mcr_total": "MCR",
-    "sii_ratio_pct": "Solvabilitätsquote",
+    "sii_ratio_pct": "Bedeckungsquote SCR",
+    "mcr_ratio_pct": "Bedeckungsquote MCR",
     "eof_total": "Eigenmittel gesamt",
     "eof_t1": "Eigenmittel Tier 1",
     "eof_t2": "Eigenmittel Tier 2",
@@ -57,23 +59,6 @@ def safe_rerun():
 # Helper: display a nice field label
 def display_field_name(field_id: str) -> str:
     return FIELD_LABELS.get(field_id, field_id)
-
-
-# Helper: human-readable issue/notes text
-def display_issue_text(row: dict) -> str:
-    issues = row.get("issues") or ""
-    verified = row.get("verified")
-    status = row.get("status") or ""
-
-    if issues:
-        return str(issues)
-    if verified is False:
-        if status == "not_found":
-            return "Wert konnte nicht eindeutig im Bericht gefunden werden."
-        if status == "ambiguous":
-            return "Wert konnte nicht eindeutig verifiziert werden."
-        return "Wert ist nicht verifiziert."
-    return ""
 
 
 def format_value_de(value: str | int | float | None, unit: str = "") -> str:
@@ -126,7 +111,8 @@ def main():
         n_docs = load_catalog()
         _, _ = load_extractions_from_dir()
         _, _ = load_summaries_from_dir()
-        st.success(f"Loaded {n_docs} docs")
+        n_final = rebuild_final_values()
+        st.success(f"Loaded {n_docs} docs and rebuilt {n_final} final values")
     if st.sidebar.button("↻ Refresh"):
         safe_rerun()
 
@@ -162,7 +148,7 @@ def main():
                 st.markdown(s.get("summary") or "_(empty)_")
 
     # Table
-    rows = get_extractions_for_doc(doc_id, db_path)
+    rows = get_final_values_for_doc(doc_id, db_path)
 
     st.subheader("Werte")
     if not rows:
@@ -180,11 +166,26 @@ def main():
         val = r.get("value_canonical")
         unit = r.get("unit") or ""
         value_display = format_value_de(val, unit)
+
+        hint = ""
+        source_type = r.get("source_type")
+        source_note = r.get("source_note") or ""
+
+        if source_type == "manual":
+            hint = "Manuell geprüft"
+        elif source_type == "derived":
+            hint = "Abgeleitet"
+        elif source_type == "extracted":
+            hint = "Automatisch extrahiert"
+
+        if source_note:
+            hint = f"{hint} – {source_note}" if hint else source_note
+
         table_rows.append(
             {
                 "Feld": display_field_name(r["field_id"]),
                 "Wert": value_display,
-                "Hinweise": display_issue_text(r),
+                "Hinweise": hint,
             }
         )
 

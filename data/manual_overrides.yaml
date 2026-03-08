@@ -1,0 +1,11 @@
+overrides:
+  - doc_id: silv-ag_2024
+    field_id: eof_total
+    value_canonical: 172686000.0
+    unit: "EUR"
+    note: "Manuell geprüft"
+  - doc_id: silv-ag_2023
+    field_id: scr_total
+    value_canonical: 36488000.0
+    unit: "EUR"
+    note: "Manuell geprüft"

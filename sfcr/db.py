@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from sfcr.config import get_settings
+from sfcr.final_values import merge_final_values
+from sfcr.manual_overrides import load_manual_overrides
 
 # ---------- connection / schema ----------
 
@@ -72,6 +74,19 @@ def init_db(db_path: Optional[Path] = None) -> Path:
       updated_at  TEXT DEFAULT (datetime('now')),
       PRIMARY KEY (doc_id, section_id),
       FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+    );
+    """)
+    # final values: one row per (doc_id, field_id); this also takes into account manually extracted values
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS final_values (
+        doc_id TEXT NOT NULL,
+        field_id TEXT NOT NULL,
+        value_canonical REAL,
+        unit TEXT,
+        verified INTEGER NOT NULL,
+        source_type TEXT NOT NULL,
+        source_note TEXT,
+        PRIMARY KEY (doc_id, field_id)
     );
     """)
     # convenience view
@@ -349,6 +364,128 @@ def get_summaries_for_doc(
     ).fetchall()
     con.close()
     return [dict(r) for r in rows]
+
+
+def get_verified_input_rows_for_doc(
+    doc_id: str, db_path: Path | None = None
+) -> list[dict]:
+    conn = sqlite3.connect(str(db_path or db_path_default()))
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                doc_id,
+                field_id,
+                value_canonical,
+                unit,
+                verified,
+                status
+            FROM extractions
+            WHERE doc_id = ?
+            """,
+            (doc_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def rebuild_final_values(
+    db_path: Path | None = None,
+    overrides_path: Path | None = None,
+) -> int:
+    dbp = db_path or db_path_default()
+    overrides_file = overrides_path or Path("data/manual_overrides.yaml")
+
+    manual_overrides = load_manual_overrides(overrides_file)
+
+    conn = sqlite3.connect(str(dbp))
+    conn.row_factory = sqlite3.Row
+    try:
+        doc_rows = conn.execute("SELECT doc_id FROM documents").fetchall()
+        doc_ids = [r["doc_id"] for r in doc_rows]
+
+        conn.execute("DELETE FROM final_values")
+
+        inserted = 0
+        for doc_id in doc_ids:
+            extracted_rows = conn.execute(
+                """
+                SELECT
+                    doc_id,
+                    field_id,
+                    value_canonical,
+                    unit,
+                    verified,
+                    status
+                FROM extractions
+                WHERE doc_id = ?
+                """,
+                (doc_id,),
+            ).fetchall()
+            extracted = [dict(r) for r in extracted_rows]
+
+            merged = merge_final_values(
+                doc_id=doc_id,
+                extracted_rows=extracted,
+                manual_overrides=manual_overrides,
+            )
+
+            for r in merged:
+                conn.execute(
+                    """
+                    INSERT INTO final_values (
+                        doc_id,
+                        field_id,
+                        value_canonical,
+                        unit,
+                        verified,
+                        source_type,
+                        source_note
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        r["doc_id"],
+                        r["field_id"],
+                        r.get("value_canonical"),
+                        r.get("unit"),
+                        1 if r.get("verified") else 0,
+                        r["source_type"],
+                        r.get("source_note"),
+                    ),
+                )
+                inserted += 1
+
+        conn.commit()
+        return inserted
+    finally:
+        conn.close()
+
+
+def get_final_values_for_doc(doc_id: str, db_path: Path | None = None) -> list[dict]:
+    conn = sqlite3.connect(str(db_path or db_path_default()))
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                doc_id,
+                field_id,
+                value_canonical,
+                unit,
+                verified,
+                source_type,
+                source_note
+            FROM final_values
+            WHERE doc_id = ?
+            ORDER BY field_id
+            """,
+            (doc_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

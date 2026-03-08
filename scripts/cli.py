@@ -9,7 +9,12 @@ import typer
 from rich import print
 
 from sfcr.db import init_db as db_init
-from sfcr.db import load_catalog, load_extractions_from_dir, load_summaries_from_dir
+from sfcr.db import (
+    load_catalog,
+    load_extractions_from_dir,
+    load_summaries_from_dir,
+    rebuild_final_values,
+)
 from sfcr.eval.eval import evaluate, format_report, load_gold, load_preds
 from sfcr.eval.goldgen import generate_gold
 from sfcr.extract.batch import extract_directory
@@ -383,6 +388,8 @@ def db_load_cmd():
     print(
         f"[green]✓[/green] loaded {n_section_summaries} section summaries from {n_docs_summaries} docs"
     )
+    n_final = rebuild_final_values()
+    print(f"[green]✓[/green] inserted {n_final} final values")
 
 
 @app.command("ui")

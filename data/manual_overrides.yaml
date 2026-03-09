@@ -9,3 +9,8 @@ overrides:
     value_canonical: 36488000.0
     unit: "EUR"
     note: "Manuell geprüft"
+  - doc_id: allianz-pkv_2023
+    field_id: technical_provisions
+    value_canonical: 28290665000
+    unit: "EUR"
+    note: "Manuell geprüft"

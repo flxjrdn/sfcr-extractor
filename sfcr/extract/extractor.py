@@ -306,7 +306,6 @@ def extract_for_document(
             )
             continue
 
-        print(f.id)  # TODO delete
         start, end = span
         if offset.offset_arabic is not None:
             start += offset.offset_arabic
@@ -319,8 +318,6 @@ def extract_for_document(
         )
         # LLM pass
         llm_out = extractor.extract(f, section_text, start, end)
-        print(llm_out.value_unscaled)  # TODO delete
-        print(llm_out.scale)  # TODO delete
 
         # choose a page text to use for scale inference:
         # use first evidence page if present, otherwise the first page of the span

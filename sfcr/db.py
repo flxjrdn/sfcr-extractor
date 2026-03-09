@@ -38,6 +38,7 @@ def init_db(db_path: Optional[Path] = None) -> Path:
       company       TEXT NOT NULL,
       display_name  TEXT NOT NULL,
       pdf_path      TEXT NOT NULL,
+      pdf_url       TEXT,
       sha256        TEXT,
       page_count    INTEGER,
       updated_at    TEXT DEFAULT (datetime('now'))
@@ -153,6 +154,7 @@ def load_catalog(
             company = _val("company")
             display_name = _val("display_name")
             pdf_path = Path(_val("pdf_path"))
+            pdf_url = _val("pdf_url")
 
             if not display_name:
                 # Build a clean, consistent label for the UI
@@ -179,19 +181,29 @@ def load_catalog(
             cur.execute(
                 """
                 INSERT INTO documents
-                  (doc_id, pdf_path, year, company, display_name, sha256, page_count, updated_at)
+                  (doc_id, pdf_path, year, company, display_name, pdf_url, sha256, page_count, updated_at)
                 VALUES
-                  (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                  (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(doc_id) DO UPDATE SET
                   pdf_path     = COALESCE(excluded.pdf_path, documents.pdf_path),
                   year         = COALESCE(excluded.year, documents.year),
                   company      = COALESCE(excluded.company, documents.company),
                   display_name = COALESCE(excluded.display_name, documents.display_name),
+                  pdf_url      = COALESCE(excluded.pdf_url, documents.pdf_url),
                   sha256       = COALESCE(excluded.sha256, documents.sha256),
                   page_count   = COALESCE(excluded.page_count, documents.page_count),
                   updated_at   = datetime('now');
                 """,
-                (doc_id, str(pdf_path), year, company, display_name, sha, pages),
+                (
+                    doc_id,
+                    str(pdf_path),
+                    year,
+                    company,
+                    display_name,
+                    pdf_url,
+                    sha,
+                    pages,
+                ),
             )
             n += 1
 
@@ -326,7 +338,7 @@ def list_documents(db_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     con = connect(db_path)
     cur = con.cursor()
     rows = cur.execute(
-        "SELECT doc_id, display_name, pdf_path, page_count FROM documents ORDER BY display_name"
+        "SELECT doc_id, display_name, pdf_path, pdf_url, page_count FROM documents ORDER BY display_name"
     ).fetchall()
     con.close()
     return [dict(r) for r in rows]

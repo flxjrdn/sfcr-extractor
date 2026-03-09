@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Optional
-
 import pandas as pd
 import streamlit as st
 
@@ -31,20 +28,16 @@ FIELD_LABELS = {
 }
 
 
-# Optional: render PDF page images
-def render_pdf_page(pdf_path: Path, page: int, zoom: float = 1.5) -> Optional[bytes]:
-    try:
-        import fitz  # PyMuPDF
-
-        doc = fitz.open(pdf_path)
-        if page < 1 or page > doc.page_count:
-            return None
-        pix = doc.load_page(page - 1).get_pixmap(
-            matrix=fitz.Matrix(zoom, zoom), alpha=False
-        )
-        return pix.tobytes("png")
-    except Exception:
-        return None
+FIELD_ORDER = [
+    "sii_ratio_pct",
+    "eof_total",
+    "scr_total",
+    "mcr_ratio_pct",
+    "mcr_total",
+    "eof_t1",
+    "eof_t2",
+    "tech_provisions_total",
+]
 
 
 def safe_rerun():
@@ -59,6 +52,13 @@ def safe_rerun():
 # Helper: display a nice field label
 def display_field_name(field_id: str) -> str:
     return FIELD_LABELS.get(field_id, field_id)
+
+
+def field_sort_key(field_id: str) -> tuple[int, str]:
+    try:
+        return FIELD_ORDER.index(field_id), field_id
+    except ValueError:
+        return len(FIELD_ORDER), field_id
 
 
 def format_value_de(value: str | int | float | None, unit: str = "") -> str:
@@ -91,14 +91,12 @@ def main():
 
     display_name = st.sidebar.selectbox("Dokument auswählen", display_names, index=0)
     doc_id = None
+    pdf_url = None
     for d in docs:
         if d["display_name"] == display_name:
+            pdf_url = d["pdf_url"]
             doc_id = d["doc_id"]
             break
-
-    # Filters
-    st.sidebar.header("Filter")
-    show_source = st.sidebar.checkbox("Zeige Text-Quelle")
 
     if st.sidebar.button(
         "1) Init DB", help="Create SQLite with tables/views if missing"
@@ -120,6 +118,60 @@ def main():
         st.stop()
 
     st.header(f"{display_name}")
+    # Link to report on company website
+    if pdf_url:
+        st.link_button("Originalbericht öffnen", pdf_url)
+
+    # Table
+    rows = get_final_values_for_doc(doc_id, db_path)
+    rows = sorted(rows, key=lambda r: field_sort_key(r["field_id"]))
+
+    st.subheader("Werte")
+    if not rows:
+        st.info(
+            "Für das Dokument wurden keine Werte in der DB gefunden. Extrahiere zunächst die Werte und lade sie dann in die DB."
+        )
+        st.stop()
+
+    total = len(rows)
+    verified = sum(1 for r in rows if r.get("verified"))
+    st.write(f"Verifizierte Werte: **{verified}/{total}**")
+
+    table_rows = []
+    for r in rows:
+        val = r.get("value_canonical")
+        unit = r.get("unit") or ""
+        value_display = format_value_de(val, unit)
+
+        hint = ""
+        source_type = r.get("source_type")
+        source_note = r.get("source_note") or ""
+
+        if source_type == "derived":
+            hint = "Abgeleitet"
+        elif source_type == "extracted":
+            hint = "Automatisch extrahiert"
+
+        if source_note:
+            hint = f"{hint} – {source_note}" if hint else source_note
+
+        table_rows.append(
+            {
+                "Feld": display_field_name(r["field_id"]),
+                "Wert": value_display,
+                "Hinweise": hint,
+            }
+        )
+
+    df = pd.DataFrame(table_rows)
+
+    # Right-align the value column using HTML rendering (Streamlit dataframe ignores Styler alignment)
+    styled = df.style.set_properties(subset=["Wert"], **{"text-align": "right"})
+
+    st.markdown(
+        styled.to_html(index=False),
+        unsafe_allow_html=True,
+    )
 
     # Summaries
     summaries = get_summaries_for_doc(doc_id)
@@ -146,74 +198,6 @@ def main():
                     st.caption(meta)
                 # The summaries are multi-line text; render as Markdown
                 st.markdown(s.get("summary") or "_(empty)_")
-
-    # Table
-    rows = get_final_values_for_doc(doc_id, db_path)
-
-    st.subheader("Werte")
-    if not rows:
-        st.info(
-            "Für das Dokument wurden keine Werte in der DB gefunden. Extrahiere zunächst die Werte und lade sie dann in die DB."
-        )
-        st.stop()
-
-    total = len(rows)
-    verified = sum(1 for r in rows if r.get("verified"))
-    st.write(f"Verifizierte Werte: **{verified}/{total}**")
-
-    table_rows = []
-    for r in rows:
-        val = r.get("value_canonical")
-        unit = r.get("unit") or ""
-        value_display = format_value_de(val, unit)
-
-        hint = ""
-        source_type = r.get("source_type")
-        source_note = r.get("source_note") or ""
-
-        if source_type == "manual":
-            hint = "Manuell geprüft"
-        elif source_type == "derived":
-            hint = "Abgeleitet"
-        elif source_type == "extracted":
-            hint = "Automatisch extrahiert"
-
-        if source_note:
-            hint = f"{hint} – {source_note}" if hint else source_note
-
-        table_rows.append(
-            {
-                "Feld": display_field_name(r["field_id"]),
-                "Wert": value_display,
-                "Hinweise": hint,
-            }
-        )
-
-    df = pd.DataFrame(table_rows)
-
-    # Right-align the value column using HTML rendering (Streamlit dataframe ignores Styler alignment)
-    styled = df.style.set_properties(subset=["Wert"], **{"text-align": "right"})
-
-    st.markdown(
-        styled.to_html(index=False),
-        unsafe_allow_html=True,
-    )
-
-    if show_source:
-        st.subheader("Textquellen")
-        for r in rows:
-            source_text = r.get("source_text")
-            issues = r.get("issues") or ""
-            if not source_text and not issues:
-                continue
-            header = f"{display_field_name(r['field_id'])}"
-            with st.expander(header, expanded=False):
-                st.write(f"Status: {r.get('status') or '—'}")
-                st.write(f"Scale applied: `{r.get('scale_applied')}`")
-                if source_text:
-                    st.code(source_text)
-                if issues:
-                    st.warning(issues)
 
 
 if __name__ == "__main__":

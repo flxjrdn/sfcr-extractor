@@ -215,9 +215,7 @@ def main():
         source_type = r.get("source_type")
         source_note = r.get("source_note") or ""
 
-        if source_type == "manual":
-            hint = "Manuell geprüft"
-        elif source_type == "derived":
+        if source_type == "derived":
             hint = "Abgeleitet"
         elif source_type == "extracted":
             hint = "Automatisch extrahiert"

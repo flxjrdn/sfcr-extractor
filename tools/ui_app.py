@@ -7,12 +7,7 @@ from sfcr.db import (
     db_path_default,
     get_final_values_for_doc,
     get_summaries_for_doc,
-    init_db,
     list_documents,
-    load_catalog,
-    load_extractions_from_dir,
-    load_summaries_from_dir,
-    rebuild_final_values,
 )
 
 # Field label mapping
@@ -74,8 +69,93 @@ def format_value_de(value: str | int | float | None, unit: str = "") -> str:
     return f"{formatted} {unit}".strip()
 
 
+def format_metric_value_compact(value: str | int | float | None, unit: str = "") -> str:
+    if value is None:
+        return "—"
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return f"{value} {unit}".strip()
+
+    if unit == "%":
+        return format_value_de(num, unit)
+
+    abs_num = abs(num)
+    if abs_num >= 1_000_000_000:
+        return format_value_de(num / 1_000_000_000, "Mrd €")
+    if abs_num >= 1_000_000:
+        return format_value_de(num / 1_000_000, "Mio €")
+    return format_value_de(num, unit)
+
+
+def render_metric_card(title: str, value: str) -> None:
+    st.markdown(
+        f"""
+        <div style=\"padding: 1rem 1.1rem; border: 1px solid rgba(128, 128, 128, 0.22); border-radius: 12px; background: rgba(128, 128, 128, 0.04); min-height: 92px;\">
+            <div style=\"font-size: 0.82rem; color: inherit; opacity: 0.75; margin-bottom: 0.35rem;\">{title}</div>
+            <div style=\"font-size: 1.5rem; font-weight: 600; color: inherit;\">{value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def main():
     st.set_page_config(page_title="SFCR Extractor Viewer", layout="wide")
+    st.markdown(
+        """
+        <style>
+            .block-container {
+                padding-top: 1.5rem;
+                padding-bottom: 2rem;
+            }
+
+            :root {
+                --app-border: rgba(128, 128, 128, 0.22);
+                --app-header-bg: rgba(128, 128, 128, 0.12);
+                --app-row-alt: rgba(128, 128, 128, 0.06);
+                --app-row-hover: rgba(128, 128, 128, 0.10);
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 0.95rem;
+                color: inherit;
+                background: transparent;
+            }
+
+            thead tr th {
+                text-align: left;
+                background: var(--app-header-bg);
+                color: inherit;
+                padding: 0.8rem 0.9rem;
+                border-bottom: 1px solid var(--app-border);
+                font-weight: 600;
+            }
+
+            tbody tr td {
+                padding: 0.8rem 0.9rem;
+                border-bottom: 1px solid var(--app-border);
+                color: inherit;
+                background: transparent;
+            }
+
+            tbody tr:nth-child(even) td {
+                background: var(--app-row-alt);
+            }
+
+            tbody tr:hover td {
+                background: var(--app-row-hover);
+            }
+
+            table a {
+                color: inherit;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     st.title("SFCR Viewer")
 
     db_path = db_path_default()
@@ -90,52 +170,40 @@ def main():
         )
 
     display_name = st.sidebar.selectbox("Dokument auswählen", display_names, index=0)
-    doc_id = None
-    pdf_url = None
-    for d in docs:
-        if d["display_name"] == display_name:
-            pdf_url = d["pdf_url"]
-            doc_id = d["doc_id"]
-            break
-
-    if st.sidebar.button(
-        "1) Init DB", help="Create SQLite with tables/views if missing"
-    ):
-        p = init_db(db_path)
-        st.success(f"DB initialized at {p}")
-    if st.sidebar.button(
-        "2) Load from JSONL", help="Load all *.extractions.jsonl into DB"
-    ):
-        n_docs = load_catalog()
-        _, _ = load_extractions_from_dir()
-        _, _ = load_summaries_from_dir()
-        n_final = rebuild_final_values()
-        st.success(f"Loaded {n_docs} docs and rebuilt {n_final} final values")
-    if st.sidebar.button("↻ Refresh"):
-        safe_rerun()
+    selected_doc = next((d for d in docs if d["display_name"] == display_name), None)
+    doc_id = selected_doc["doc_id"] if selected_doc else None
+    pdf_url = selected_doc.get("pdf_url") if selected_doc else None
 
     if not docs:
         st.stop()
 
-    st.header(f"{display_name}")
-    # Link to report on company website
-    if pdf_url:
-        st.link_button("Originalbericht öffnen", pdf_url)
-
-    # Table
     rows = get_final_values_for_doc(doc_id, db_path)
     rows = sorted(rows, key=lambda r: field_sort_key(r["field_id"]))
+    rows_by_field = {r["field_id"]: r for r in rows}
 
-    st.subheader("Werte")
-    if not rows:
-        st.info(
-            "Für das Dokument wurden keine Werte in der DB gefunden. Extrahiere zunächst die Werte und lade sie dann in die DB."
+    header_left, header_right = st.columns([3, 1])
+    with header_left:
+        st.markdown(f"## {display_name}")
+    with header_right:
+        if pdf_url:
+            st.link_button("Originalbericht öffnen", pdf_url, use_container_width=True)
+
+    metric_cols = st.columns(4)
+    metric_fields = [
+        ("Bedeckungsquote SCR", "sii_ratio_pct"),
+        ("Eigenmittel gesamt", "eof_total"),
+        ("SCR", "scr_total"),
+        ("Vt. Rückstellungen", "tech_provisions_total"),
+    ]
+    for col, (label, field_id) in zip(metric_cols, metric_fields):
+        row = rows_by_field.get(field_id)
+        value = format_metric_value_compact(
+            (row or {}).get("value_canonical"), (row or {}).get("unit") or ""
         )
-        st.stop()
+        with col:
+            render_metric_card(label, value)
 
-    total = len(rows)
-    verified = sum(1 for r in rows if r.get("verified"))
-    st.write(f"Verifizierte Werte: **{verified}/{total}**")
+    st.markdown("### Kennzahlen")
 
     table_rows = []
     for r in rows:
@@ -147,7 +215,9 @@ def main():
         source_type = r.get("source_type")
         source_note = r.get("source_note") or ""
 
-        if source_type == "derived":
+        if source_type == "manual":
+            hint = "Manuell geprüft"
+        elif source_type == "derived":
             hint = "Abgeleitet"
         elif source_type == "extracted":
             hint = "Automatisch extrahiert"
@@ -165,24 +235,28 @@ def main():
 
     df = pd.DataFrame(table_rows)
 
-    # Right-align the value column using HTML rendering (Streamlit dataframe ignores Styler alignment)
-    styled = df.style.set_properties(subset=["Wert"], **{"text-align": "right"})
+    styled = df.style.set_properties(
+        subset=["Wert"],
+        **{
+            "text-align": "right",
+            "font-variant-numeric": "tabular-nums",
+            "white-space": "nowrap",
+        },
+    )
+
+    summaries = get_summaries_for_doc(doc_id)
 
     st.markdown(
         styled.to_html(index=False),
         unsafe_allow_html=True,
     )
 
-    # Summaries
-    summaries = get_summaries_for_doc(doc_id)
-
-    st.subheader("Zusammenfassungen")
+    st.markdown("### Zusammenfassungen")
     if not summaries:
         st.info(
             "Keine Zusammenfassungen für das Dokument gefunden. Erzeuge neue Zusammenfassungen und lade sie in die DB."
         )
     else:
-        # Build stable tab order; fall back to title
         labels = [
             f"{s['section_id']} — {s.get('title') or ''}".strip(" —") for s in summaries
         ]
@@ -190,13 +264,12 @@ def main():
         for tab, s in zip(tabs, summaries):
             with tab:
                 meta = (
-                    f"Pages {s.get('start_page')}–{s.get('end_page')}"
+                    f"Seiten {s.get('start_page')}–{s.get('end_page')}"
                     if s.get("start_page") and s.get("end_page")
                     else ""
                 )
                 if meta:
                     st.caption(meta)
-                # The summaries are multi-line text; render as Markdown
                 st.markdown(s.get("summary") or "_(empty)_")
 
 

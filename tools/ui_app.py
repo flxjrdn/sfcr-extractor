@@ -105,11 +105,17 @@ def render_imprint_footer() -> None:
     with st.expander("Impressum", expanded=False):
         st.markdown(
             """
-            Dr. Felix Jordan
-            Kobellstr. 12
-            80336 München
+            **Name:**<br>
+            Dr. Felix Jordan<br>
+
+            **Anschrift:**<br>
+            Kobellstr. 12<br>
+            80336 München<br>
+
+            **Kontakt:**<br>
             felix.jordan@web.de
-            """
+            """,
+            unsafe_allow_html=True,
         )
 
 

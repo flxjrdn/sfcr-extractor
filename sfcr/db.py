@@ -19,10 +19,13 @@ def db_path_default() -> Path:
     return Path(cfg.output_dir) / "sfcr.sqlite"
 
 
-def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
+def connect(db_path: Optional[Path] = None, readonly=False) -> sqlite3.Connection:
     db = db_path or db_path_default()
     db.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(db))
+    if readonly:
+        con = sqlite3.connect(f"file:{str(db)}?mode=ro", uri=True)
+    else:
+        con = sqlite3.connect(str(db))
     con.row_factory = sqlite3.Row
     return con
 
@@ -110,13 +113,6 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
-
-
-def _find_pdf_for_doc(doc_id: str) -> Optional[Path]:
-    """Best-effort: look in SFCR_DATA for <doc_id>.pdf"""
-    cfg = get_settings()
-    cand = Path(cfg.pdfs_dir) / f"{doc_id}.pdf"
-    return cand if cand.exists() else None
 
 
 def load_catalog(
@@ -335,7 +331,7 @@ def load_summaries_from_dir(
 def list_documents(db_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     if db_path is None or not db_path.is_file():
         return []
-    con = connect(db_path)
+    con = connect(db_path, readonly=True)
     cur = con.cursor()
     rows = cur.execute(
         "SELECT doc_id, display_name, pdf_path, pdf_url, page_count FROM documents ORDER BY display_name"
@@ -344,26 +340,10 @@ def list_documents(db_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def get_extractions_for_doc(
-    doc_id: str, db_path: Optional[Path] = None
-) -> List[Dict[str, Any]]:
-    con = connect(db_path)
-    cur = con.cursor()
-    rows = cur.execute(
-        """
-        SELECT field_id, value_canonical, unit, verified, confidence, page, status, issues, source_text, scale_applied
-        FROM extractions WHERE doc_id = ? ORDER BY field_id
-    """,
-        (doc_id,),
-    ).fetchall()
-    con.close()
-    return [dict(r) for r in rows]
-
-
 def get_summaries_for_doc(
     doc_id: str, db_path: Optional[Path] = None
 ) -> List[Dict[str, Any]]:
-    con = connect(db_path)
+    con = connect(db_path, readonly=True)
     cur = con.cursor()
     rows = cur.execute(
         """
@@ -376,31 +356,6 @@ def get_summaries_for_doc(
     ).fetchall()
     con.close()
     return [dict(r) for r in rows]
-
-
-def get_verified_input_rows_for_doc(
-    doc_id: str, db_path: Path | None = None
-) -> list[dict]:
-    conn = sqlite3.connect(str(db_path or db_path_default()))
-    conn.row_factory = sqlite3.Row
-    try:
-        rows = conn.execute(
-            """
-            SELECT
-                doc_id,
-                field_id,
-                value_canonical,
-                unit,
-                verified,
-                status
-            FROM extractions
-            WHERE doc_id = ?
-            """,
-            (doc_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
 
 
 def rebuild_final_values(

@@ -188,6 +188,12 @@ def main():
         if pdf_url:
             st.link_button("Originalbericht öffnen", pdf_url, use_container_width=True)
 
+    st.caption(
+        "Die dargestellten Kennzahlen wurden automatisiert aus öffentlich zugänglichen SFCR-Berichten extrahiert. "
+        "Trotz sorgfältiger Verarbeitung und zusätzlicher Validierung kann nicht ausgeschlossen werden, dass einzelne Werte fehlerhaft sind. "
+        "Die Inhalte dienen ausschließlich zu Informations- und Analysezwecken. Für verbindliche Informationen wird auf die jeweiligen Originalberichte der Unternehmen verwiesen."
+    )
+
     metric_cols = st.columns(4)
     metric_fields = [
         ("Bedeckungsquote SCR", "sii_ratio_pct"),

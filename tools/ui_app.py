@@ -100,6 +100,19 @@ def render_metric_card(title: str, value: str) -> None:
     )
 
 
+def render_imprint_footer() -> None:
+    st.markdown("---")
+    with st.expander("Impressum", expanded=False):
+        st.markdown(
+            """
+            Dr. Felix Jordan
+            Kobellstr. 12
+            80336 München
+            felix.jordan@web.de
+            """
+        )
+
+
 def main():
     st.set_page_config(page_title="SFCR Extractor Viewer", layout="wide")
     st.markdown(
@@ -275,6 +288,8 @@ def main():
                 if meta:
                     st.caption(meta)
                 st.markdown(s.get("summary") or "_(empty)_")
+
+    render_imprint_footer()
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from .scale_detect import infer_scale
 from .schema import ExtractionLLM, VerifiedExtraction
@@ -331,53 +331,3 @@ def verify_extraction(
             "verifier_notes": ";".join(notes) if notes else None,
         }
     )
-
-
-# ---------------- Cross-checks ----------------
-
-
-def cross_checks(values: Dict[str, float]) -> Dict[str, Tuple[bool, str]]:
-    """
-    Simple internal arithmetic checks.
-    values: canonical EUR/% map like {"eof_total": ..., "eof_t1": ..., "scr_total": ..., "sii_ratio_pct": ...}
-    Returns: check_name -> (pass?, detail)
-    """
-    out: Dict[str, Tuple[bool, str]] = {}
-
-    def ok(name: str, cond: bool, msg: str):
-        out[name] = (cond, msg)
-
-    # A) EOF_total ≈ T1 + T2 (within ± max(1 unit of lowest scale, 0.1% of total))
-    if all(k in values for k in ("eof_total", "eof_t1", "eof_t2")):
-        total = values["eof_total"]
-        sum_t = values["eof_t1"] + values["eof_t2"]
-        tol = max(500.0, 0.001 * abs(total))  # 500 EUR if TEUR-typical; tune if needed
-        ok(
-            "sum_eof",
-            abs(total - sum_t) <= tol,
-            f"tot={total:.2f} sum={sum_t:.2f} tol={tol:.2f}",
-        )
-
-    # B) SII ratio ≈ 100 * EOF_total / SCR
-    if (
-        all(k in values for k in ("eof_total", "scr_total", "sii_ratio_pct"))
-        and values["scr_total"]
-    ):
-        expected = 100.0 * values["eof_total"] / values["scr_total"]
-        got = values["sii_ratio_pct"]
-        tol_pp = 0.2  # percentage points
-        ok(
-            "sii_ratio",
-            abs(got - expected) <= tol_pp,
-            f"exp={expected:.2f} got={got:.2f} tol={tol_pp:.2f}pp",
-        )
-
-    # C) MCR/SCR sanity (0 < MCR <= SCR)
-    if all(k in values for k in ("mcr_total", "scr_total")):
-        ok(
-            "mcr_le_scr",
-            values["mcr_total"] <= values["scr_total"],
-            "MCR must not exceed SCR",
-        )
-
-    return out

@@ -124,15 +124,15 @@ def evaluate(
         ok = within_tolerance(g, p)
         if ok:
             n_within_tol += 1
+        else:
+            errors.append(
+                f"WRONG {g.doc_id}/{g.field_id} pred={p.value_canonical} {p.unit} gold={g.value} {g.unit}"
+            )
 
         if p.verified:
             n_verified += 1
             if ok:
                 n_correct_verified += 1
-            else:
-                errors.append(
-                    f"WRONG {g.doc_id}/{g.field_id} pred={p.value_canonical} {p.unit} gold={g.value} {g.unit}"
-                )
         else:
             if ok:
                 n_unverified_but_ok += 1

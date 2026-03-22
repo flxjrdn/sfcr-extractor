@@ -5,7 +5,6 @@ from sfcr.extract.verify import (
     _VALUE_NOT_FOUND_IN_SOURCE_TEXT,
     _coerce_scale,
     apply_scale,
-    cross_checks,
     extract_current_prev_pair,
     extract_numbers_de,
     verify_extraction,
@@ -209,32 +208,3 @@ def test_verify_ratio_check_adds_mismatch_note():
     )
     assert out.verifier_notes is not None
     assert "ratio_mismatch" in out.verifier_notes
-
-
-# ---------------- cross_checks ----------------
-
-
-def test_cross_checks_sum_eof_and_ratio_and_mcr_le_scr():
-    values = {
-        "eof_total": 5_127_125_000.0,
-        "eof_t1": 4_000_000_000.0,
-        "eof_t2": 1_127_125_000.0,
-        "scr_total": 1_312_850_000.0,
-        "sii_ratio_pct": round(100.0 * 5_127_125_000.0 / 1_312_850_000.0, 2),
-        "mcr_total": 500_000_000.0,
-    }
-    out = cross_checks(values)
-    assert "sum_eof" in out
-    assert out["sum_eof"][0] is True
-
-    assert "sii_ratio" in out
-    assert out["sii_ratio"][0] is True
-
-    assert "mcr_le_scr" in out
-    assert out["mcr_le_scr"][0] is True
-
-
-def test_cross_checks_mcr_le_scr_fails_when_mcr_exceeds_scr():
-    values = {"mcr_total": 2_000.0, "scr_total": 1_000.0}
-    out = cross_checks(values)
-    assert out["mcr_le_scr"][0] is False

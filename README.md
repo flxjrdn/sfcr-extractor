@@ -69,7 +69,7 @@ The processing pipeline consists of five steps:
 
 ### Requirements
 
-- Python **3.13.0**
+- Python 3.10+ (tested with Python 3.13.0)
 - pip
 
 ### Setup

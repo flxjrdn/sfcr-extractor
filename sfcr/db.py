@@ -367,8 +367,7 @@ def rebuild_final_values(
 
     manual_overrides = load_manual_overrides(overrides_file)
 
-    conn = sqlite3.connect(str(dbp))
-    conn.row_factory = sqlite3.Row
+    conn = connect(dbp)
     try:
         doc_rows = conn.execute("SELECT doc_id FROM documents").fetchall()
         doc_ids = [r["doc_id"] for r in doc_rows]
@@ -431,8 +430,7 @@ def rebuild_final_values(
 
 
 def get_final_values_for_doc(doc_id: str, db_path: Path | None = None) -> list[dict]:
-    conn = sqlite3.connect(str(db_path or db_path_default()))
-    conn.row_factory = sqlite3.Row
+    conn = connect(db_path, readonly=True)
     try:
         rows = conn.execute(
             """

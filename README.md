@@ -6,6 +6,16 @@ The project transforms unstructured PDF reports into structured, validated data 
 
 ---
 
+## 🌐 Live Demo
+
+The application is available online:
+
+https://sfcr-viewer.streamlit.app
+
+It provides an interactive interface for exploring extracted SFCR data.
+
+---
+
 ## 🚀 Overview
 
 SFCR reports contain key financial information about insurance companies but are published as unstructured PDF documents. Extracting relevant values manually is time-consuming and error-prone.

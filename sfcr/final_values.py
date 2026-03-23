@@ -15,11 +15,9 @@ def derive_values_for_doc(
 
     eof = values_by_field.get("eof_total")
     scr = values_by_field.get("scr_total")
-    mcr = values_by_field.get("mcr_total")
 
     eof_val = eof.get("value_canonical") if eof else None
     scr_val = scr.get("value_canonical") if scr else None
-    mcr_val = mcr.get("value_canonical") if mcr else None
     if (
         isinstance(eof_val, (str, float, int))
         and isinstance(scr_val, (str, float, int))
@@ -34,23 +32,6 @@ def derive_values_for_doc(
                 "verified": True,
                 "source_type": "derived",
                 "source_note": "Eigenmittel / SCR",
-            }
-        )
-
-    if (
-        isinstance(eof_val, (str, float, int))
-        and isinstance(mcr_val, (str, float, int))
-        and mcr_val != 0
-    ):
-        ratio = round(100.0 * float(eof_val) / float(mcr_val), 2)
-        out.append(
-            {
-                "field_id": "mcr_ratio_pct",
-                "value_canonical": ratio,
-                "unit": "%",
-                "verified": True,
-                "source_type": "derived",
-                "source_note": "Eigenmittel / MCR",
             }
         )
 

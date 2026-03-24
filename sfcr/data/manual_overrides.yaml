@@ -1,0 +1,36 @@
+overrides:
+  - doc_id: silv-ag_2024
+    field_id: eof_total
+    value_canonical: 172686000.0
+    unit: "EUR"
+    note: "Manuell geprüft"
+  - doc_id: silv-ag_2023
+    field_id: scr_total
+    value_canonical: 36488000.0
+    unit: "EUR"
+    note: "Manuell geprüft"
+  - doc_id: allianz-pkv_2023
+    field_id: tech_provisions_total
+    value_canonical: 28290665000
+    unit: "EUR"
+    note: "Manuell geprüft"
+  - doc_id: axakv_2023
+    field_id: scr_total
+    value_canonical: 650971000
+    unit: "EUR"
+    note: "Manuell geprüft"
+  - doc_id: axakv_2023
+    field_id: mcr_total
+    value_canonical: 162743000
+    unit: "EUR"
+    note: "Manuell geprüft"
+  - doc_id: axakv_2024
+    field_id: scr_total
+    value_canonical: 773851000
+    unit: "EUR"
+    note: "Manuell geprüft"
+  - doc_id: axakv_2024
+    field_id: mcr_total
+    value_canonical: 193463000
+    unit: "EUR"
+    note: "Manuell geprüft"

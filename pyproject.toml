@@ -2,7 +2,25 @@
 name = "sfcr-extractor"
 version = "1.0.0"
 requires-python = ">=3.10"
-dependencies = ["pymupdf", "pydantic>=2", "typer", "rich", "pydantic-settings", "pytest>=7.4"]
+dependencies = [
+  "pydantic>=2",
+  "pydantic-settings",
+  "pymupdf",
+  "PyYAML",
+  "requests",
+  "rich",
+  "streamlit",
+  "typer",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+  "tomli>=2; python_version < '3.11'",
+]
+openai = [
+  "openai",
+]
 
 [build-system]
 requires = ["setuptools>=64", "wheel"]
@@ -10,6 +28,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["sfcr*"]
+
+[tool.setuptools.package-data]
+"sfcr.data" = ["catalog.csv", "manual_overrides.yaml"]
+"sfcr.extract" = ["fields.yaml"]
+"sfcr.resources" = ["policy.md"]
 
 [tool.pytest.ini_options]
 filterwarnings = [

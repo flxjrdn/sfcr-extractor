@@ -4,6 +4,13 @@
   typical_scale: 1000
   keywords: ["SCR", "Solvenzkapitalanforderung", "S.23.01"]
 
+- id: sii_ratio_pct
+  subsection_hint: E.2
+  unit: "%"
+  typical_scale: null
+  keywords: ["Solvabilitätsquote", "SCR-Quote", "Bedeckungsquote SCR", "Solvenzquote"]
+  notes: "SCR coverage ratio in percent; expected to align with 100 * eof_total / scr_total"
+
 - id: mcr_total
   subsection_hint: E.2
   unit: EUR

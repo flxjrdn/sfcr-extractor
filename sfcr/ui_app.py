@@ -8,6 +8,7 @@ from sfcr.db import (
     db_path_default,
     get_final_values_for_doc,
     get_summaries_for_doc,
+    init_db,
     list_documents,
 )
 
@@ -219,6 +220,7 @@ def main():
     st.title("SFCR Viewer")
 
     db_path = db_path_default()
+    init_db(db_path)
 
     # Documents sidebar
     docs = list_documents(db_path)

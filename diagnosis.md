@@ -1,3 +1,28 @@
+## Statusupdate 2026-03-24
+
+Die nachfolgenden Befunde sind der historische Ausgangsstand vor Umsetzung der ToDos `2.X` bis `8.X`. Auf Basis der umgesetzten ToDos und der dokumentierten Verifikation ist der Status der ursprünglichen Diagnosepunkte jetzt wie folgt:
+
+1. Behoben durch ToDo `2.1`: Die UI rendert datengetriebene Tabellen nicht mehr über `unsafe_allow_html=True`; dynamische KPI-Inhalte werden escaped.
+2. Behoben durch ToDo `2.2`: Der Dev-/Lokallauf verwendet sichere Streamlit-Defaults; unsichere CORS-/XSRF-Deaktivierung ist nur noch per explizitem localhost-Opt-in möglich.
+3. Behoben durch ToDos `3.1` und `3.2`: Die Test-Sammlung löst keine Ollama-Requests mehr aus und die Suite ist im aktuellen Workspace grün.
+4. Behoben durch ToDo `4.1`: `status="ambiguous"` ist in Prompt, Schema und Folgebehandlung konsistent unterstützt.
+5. Behoben durch ToDo `5.1`: Extraktion und Summarization verwenden dieselbe PDF-Seitenoffset-Logik.
+6. Behoben durch ToDo `4.2`: Evidence-Seiten werden nur noch bei tatsächlicher Lokalisierung des `source_text` gespeichert.
+7. Behoben durch ToDo `4.3`: Evidenz-/Textsignale haben Vorrang vor Modellangaben; Ratio-Widersprüche blockieren Verifikation.
+8. Behoben durch ToDo `3.3`: `verifier_notes` haben wieder einen stabilen strukturierten Maschinenvertrag.
+9. Behoben durch ToDos `6.1` und `6.2`: Paketmetadaten, Extras und mitgelieferte Laufzeitressourcen sind konsistent abgesichert.
+10. Behoben durch ToDo `6.3`: Die CLI setzt Importpfade vor Modulimports und propagiert UI-Startfehler korrekt.
+11. Behoben durch ToDo `7.1`: Konfigurationspfade werden deterministisch relativ zum Projekt aufgelöst; `Settings()` bleibt seiteneffektfrei.
+12. Behoben durch ToDo `7.2`: SQLite-Foreign-Keys werden pro Verbindung aktiviert und bestehende Default-Datenbanken werden in einen FK-konsistenten Zustand überführt.
+13. Behoben durch ToDo `8.1`: Repo-Hygiene-Regeln decken die beanstandeten Artefakte ab; die Demo-DB bleibt bewusst versioniert.
+
+Aktueller Verifikationsstand im Workspace:
+- Lauf am 2026-03-24 16:12:52 CET: `TMPDIR=$PWD/.tmp PYTHONPATH=. pytest -q` war erfolgreich mit `112 passed, 2 warnings in 2.09s`.
+- Die verbliebenen Warnungen betreffen Pydantic-Deprecations in [sfcr/config.py](sfcr/config.py); sie waren nicht Teil der ursprünglichen Diagnose-ToDos.
+- Das generierte Artefakt `ace_playbook.jsonl` war im aktuellen Workspace zwischenzeitlich erneut vorhanden und wurde in diesem Lauf wieder entfernt, damit die Repo-Hygiene-Regression dem dokumentierten Zielzustand entspricht.
+
+## Ursprüngliche Diagnose
+
 Ich habe das Repo statisch geprüft und die wichtigsten Teile lokal ausprobiert. Mein Fazit: **die Grundidee ist gut, aber das Repo hat mehrere echte Schwachstellen in Sicherheit, Packaging, Testbarkeit und Datenintegrität**. Ein Teil davon ist schnell behebbar, ein Teil sitzt tiefer in der Extraktionslogik.
 
 ## Die wichtigsten Probleme

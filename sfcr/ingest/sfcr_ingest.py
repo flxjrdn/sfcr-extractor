@@ -17,9 +17,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import fitz  # PyMuPDF
-
 from sfcr.ingest import schema
+
+try:
+    import fitz  # PyMuPDF
+except Exception as e:  # pragma: no cover
+    fitz = None
+    _FITZ_IMPORT_ERROR = e
 
 # -----------------------------
 # Utilities & configuration
@@ -171,6 +175,7 @@ class PDFLoader:
     """Light wrapper around PyMuPDF with helpers."""
 
     def __init__(self, path: str):
+        _ensure_fitz()
         self.path = path
         self.doc = fitz.open(path)
 
@@ -182,6 +187,14 @@ class PDFLoader:
 
     def rect(self, page_index: int) -> fitz.Rect:
         return self.get_page(page_index).rect
+
+
+def _ensure_fitz() -> None:
+    if fitz is None:  # pragma: no cover
+        raise RuntimeError(
+            "PyMuPDF (fitz) is required for PDF ingestion. "
+            "Install it with: pip install pymupdf"
+        ) from _FITZ_IMPORT_ERROR
 
 
 class ToCDetector:

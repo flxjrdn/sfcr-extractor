@@ -88,6 +88,16 @@ The processing pipeline consists of five steps:
 make install
 ```
 
+`make install` sets up the base development environment: package, tests, UI, and the `mock` and `ollama` providers.
+
+If you want to use the OpenAI provider, install the additional `openai` extra:
+
+```bash
+make install-openai
+# or equivalent:
+python -m pip install -e '.[dev,openai]'
+```
+
 ## 📂 Data & Configuration
 
 ### Input data (PDFs)
@@ -119,7 +129,7 @@ Create a `.env` file (optional):
 
 SFCR_DATA=data/sfcrs
 SFCR_OUTPUT=artifacts
-OPENAI_API_KEY=your_api_key
+OPENAI_API_KEY=your_api_key  # only needed for PROVIDER=openai
 
 ---
 
@@ -129,7 +139,7 @@ Supported providers:
 
 - mock (default)
 - ollama (local models)
-- openai (used in this project)
+- openai (optional extra; requires `make install-openai` and `OPENAI_API_KEY`)
 
 Example:
 make extract-dir MODEL=gpt-5-mini PROVIDER=openai
@@ -140,12 +150,27 @@ make extract-dir MODEL=gpt-5-mini PROVIDER=openai
 
 ### Run full pipeline
 
+Base setup without OpenAI:
+
+```bash
+make ingest-dir
+make extract-dir MODEL=mock PROVIDER=mock
+make summarize-dir MODEL=mock PROVIDER=mock
+make db-init
+make db-load
+make ui
+```
+
+OpenAI-backed setup:
+
+```bash
 make ingest-dir
 make extract-dir MODEL=gpt-5-mini PROVIDER=openai
 make summarize-dir MODEL=gpt-5-mini PROVIDER=openai
 make db-init
 make db-load
 make ui
+```
 
 ---
 
@@ -162,6 +187,18 @@ make ui
 - make db-init → Initialize database
 - make db-load → Load data into DB
 - make ui → Launch web interface
+
+For `PROVIDER=openai`, install the package with the OpenAI extra first via `make install-openai` or `python -m pip install -e '.[dev,openai]'`.
+
+For normal local development, `make ui` keeps Streamlit's default CORS and XSRF protections enabled.
+
+If you explicitly need the older relaxed behavior for a localhost-only debugging session, opt in consciously:
+
+```bash
+SFCR_UI_ALLOW_INSECURE_LOCALHOST=1 make ui
+```
+
+This insecure mode binds Streamlit to `127.0.0.1` and disables CORS/XSRF protection only for that process. Do not use it for shared, remote, or forwarded environments.
 
 ---
 

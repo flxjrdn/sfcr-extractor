@@ -5,3 +5,4 @@
 *.txt
 .env
 .codex_runs
+var/

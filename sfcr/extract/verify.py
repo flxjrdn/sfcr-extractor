@@ -4,13 +4,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
-from .scale_detect import (
-    ScaleHit,
-    infer_scale_from_page_caption,
-    infer_scale_from_source_text,
-    infer_scale_near_source,
-)
-from .schema import ExtractionLLM, VerifiedExtraction, VerifierNote
+from .scale_detect import infer_scale
+from .schema import ExtractionLLM, VerifiedExtraction
 
 DE_NBSP = "\u00a0"
 LEADER_CHARS = r"\.\u2026\u00B7\u2219\u22EF\u2024\u2027\uf020·•⋯∙"
@@ -65,11 +60,8 @@ _CURRENT_PREV_RE = re.compile(
 )
 
 
-_NO_SECTION = "no_section"
-_NO_VALUE_OR_NOT_OK = "no_value_or_not_ok"
-_VALUE_NOT_FOUND_IN_SOURCE_TEXT = "value_not_found_in_source_text"
-_LOOKS_LIKE_PREV_YEAR_VALUE = "looks_like_prev_year_value"
-_RATIO_MISMATCH = "ratio_mismatch"
+_VALUE_NOT_FOUND_IN_SOURCE_TEXT = "Wert konnte in Textquelle nicht verifiziert werden"
+_LOOKS_LIKE_PREV_YEAR_VALUE = "Wert stammt eventuell aus dem Vorjahr"
 
 
 @dataclass
@@ -77,29 +69,6 @@ class ParsedNumber:
     value: float
     is_percent: bool
     is_negative: bool
-
-
-def _note(code: str) -> VerifierNote:
-    return VerifierNote(code=code)
-
-
-def _evidence_scale_hit(
-    *, source_text: Optional[str], page_text: Optional[str]
-) -> Optional[ScaleHit]:
-    hit = infer_scale_from_source_text(source_text)
-    if hit is not None:
-        return hit
-
-    if page_text:
-        hit = infer_scale_near_source(page_text, source_text)
-        if hit is not None:
-            return hit
-
-        hit = infer_scale_from_page_caption(page_text)
-        if hit is not None:
-            return hit
-
-    return None
 
 
 def _to_float_de(intpart: str, decpart: Optional[str]) -> float:
@@ -211,12 +180,10 @@ def verify_extraction(
     *,
     doc_id: str,
     extr: ExtractionLLM,
-    expected_unit: str | None = None,
     typical_scale: Optional[float],
     page_text_for_scale: str | None = None,
     ratio_check: Optional[Tuple[float, float]] = None,
 ) -> VerifiedExtraction:
-    expected_unit_final = expected_unit if expected_unit in ("EUR", "%") else None
     base = VerifiedExtraction(
         doc_id=doc_id,
         field_id=extr.field_id,
@@ -228,44 +195,45 @@ def verify_extraction(
         evidence=extr.evidence,
         source_text=extr.source_text,
         scale_applied=None,
-        verifier_notes=[],
+        verifier_notes=None,
     )
 
     # Gate
     if extr.status != "ok" or extr.value_unscaled is None:
-        base.verifier_notes = [_note(_NO_VALUE_OR_NOT_OK)]
+        base.verifier_notes = "no_value_or_not_ok"
         return base
 
-    notes: list[VerifierNote] = []
+    notes: list[str] = []
 
     # --- Scale resolution ----------------------------------------------------
-    hit = _evidence_scale_hit(
+    hit = infer_scale(
         source_text=extr.source_text,
         page_text=page_text_for_scale,
+        typical_scale=typical_scale,
     )
 
+    # Prefer model-provided scale only if allowed; otherwise ignore it
     model_scale = extr.scale if extr.scale in ALLOWED_SCALES else None
-    if expected_unit_final is not None:
-        unit_final = expected_unit_final
-    else:
-        unit_final = hit.unit if hit is not None and hit.unit is not None else extr.unit
 
     scale_final: float | None = None
-    if unit_final != "%":
-        if hit is not None and hit.scale is not None:
-            scale_final = float(hit.scale)
-        elif model_scale is not None:
-            scale_final = float(model_scale)
-        elif typical_scale is not None and unit_final == "EUR":
-            scale_final = float(typical_scale)
-        elif unit_final == "EUR":
-            scale_final = 1.0
+
+    # 1) model scale wins (if allowed)
+    if model_scale is not None:
+        scale_final = float(model_scale)
+
+    # 2) otherwise use inferred scale
+    if scale_final is None and hit.scale is not None:
+        scale_final = float(hit.scale)
+
+    # 3) EUR amounts: missing scale => assume 1.0, record as default
+    if scale_final is None and extr.unit == "EUR":
+        scale_final = 1.0
 
     # --- Canonical value from LLM value_unscaled ----------------------------
     value_canon: float | None = None
 
     if extr.value_unscaled is not None:
-        if unit_final == "%":
+        if extr.unit == "%":
             # For percent, scale is irrelevant: canonical == unscaled
             value_canon = float(extr.value_unscaled)
         else:
@@ -280,7 +248,7 @@ def verify_extraction(
         value_canon = round(value_canon, 2)
 
     # --- Determine unit -----------------------------------------------------
-    unit = unit_final if value_canon is not None else None
+    unit = extr.unit if value_canon is not None else None
 
     # --- Value consistency check against snippet (non-destructive) ----------
     if extr.source_text:
@@ -301,13 +269,13 @@ def verify_extraction(
 
         if not ok_match:
             # Not fatal (LLM might have normalized formatting), but should reduce confidence
-            notes.append(_note(_VALUE_NOT_FOUND_IN_SOURCE_TEXT))
+            notes.append(_VALUE_NOT_FOUND_IN_SOURCE_TEXT)
 
         # If we detect X(Y) and model picked Y (prev) instead of X, flag it
         if pair and abs(float(extr.value_unscaled) - pair[1]) <= 1e-6 * max(
             1.0, abs(pair[1])
         ):
-            notes.append(_note(_LOOKS_LIKE_PREV_YEAR_VALUE))
+            notes.append(_LOOKS_LIKE_PREV_YEAR_VALUE)
 
     # --- Confidence ---------------------------------------------------------
     # Start low; add points for strong evidence.
@@ -322,37 +290,34 @@ def verify_extraction(
         conf += 0.10
 
     # penalize issues
-    note_codes = [note.code for note in notes]
-    if _VALUE_NOT_FOUND_IN_SOURCE_TEXT in note_codes:
+    if _VALUE_NOT_FOUND_IN_SOURCE_TEXT in notes:
         conf -= 0.35
-    if _LOOKS_LIKE_PREV_YEAR_VALUE in note_codes:
+    if _LOOKS_LIKE_PREV_YEAR_VALUE in notes:
         conf -= 0.25
-
-    # Optional ratio check for percent fields
-    if ratio_check and unit_final == "%":
-        expected, tol = ratio_check
-        if value_canon is not None and abs(value_canon - expected) <= tol:
-            conf += 0.15
-        else:
-            notes.append(_note(_RATIO_MISMATCH))
-            conf -= 0.30
 
     conf = round(conf, 2)
     conf = max(0.0, min(1.0, conf))
 
+    # Optional ratio check for percent fields
+    if ratio_check and extr.unit == "%":
+        expected, tol = ratio_check
+        if value_canon is not None and abs(value_canon - expected) <= tol:
+            conf = min(1.0, conf + 0.15)
+        else:
+            notes.append(f"Erwartetes Verhältnis ist {expected} anstatt {value_canon}")
+
     # Decide verified: in your system "verified" really means "passed basic checks"
     blocking = any(
-        note.code
-        in (
+        n.startswith(block_text)
+        for block_text in (
             _VALUE_NOT_FOUND_IN_SOURCE_TEXT,
             _LOOKS_LIKE_PREV_YEAR_VALUE,
-            _RATIO_MISMATCH,
         )
-        for note in notes
+        for n in notes
     )
-    verified = conf >= 0.50 and not blocking and unit_final is not None
+    verified = conf >= 0.50 and not blocking and extr.unit is not None
 
-    if unit_final == "%":
+    if extr.unit == "%":
         scale_final = None
 
     return VerifiedExtraction(
@@ -363,6 +328,6 @@ def verify_extraction(
             "unit": unit,
             "confidence": conf,
             "scale_applied": float(scale_final) if scale_final is not None else None,
-            "verifier_notes": notes,
+            "verifier_notes": ";".join(notes) if notes else None,
         }
     )

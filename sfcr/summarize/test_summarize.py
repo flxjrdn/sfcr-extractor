@@ -23,9 +23,7 @@ def _write_json(path: Path, obj: dict) -> None:
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def test_run_summarize_applies_pdf_offset_to_summary_pages(
-    monkeypatch, tmp_path: Path
-):
+def test_run_summarize_applies_pdf_offset_to_summary_pages(monkeypatch, tmp_path: Path):
     ingest_path = tmp_path / "doc.ingest.json"
     _write_json(
         ingest_path,

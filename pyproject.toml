@@ -32,7 +32,6 @@ include = ["sfcr*"]
 [tool.setuptools.package-data]
 "sfcr.data" = ["catalog.csv", "manual_overrides.yaml"]
 "sfcr.extract" = ["fields.yaml"]
-"sfcr.resources" = ["policy.md"]
 
 [tool.pytest.ini_options]
 filterwarnings = [

@@ -68,7 +68,9 @@ def main() -> int:
     if "paris" in answer.lower():
         print("🎉 Looks good — the model seems to respond properly.")
     else:
-        print("⚠️ Model responded, but the output looks unexpected. Check the text above.")
+        print(
+            "⚠️ Model responded, but the output looks unexpected. Check the text above."
+        )
 
     return 0
 

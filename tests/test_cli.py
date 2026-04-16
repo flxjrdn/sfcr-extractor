@@ -13,7 +13,6 @@ from typer.testing import CliRunner
 
 from sfcr.runtime_resources import bundled_fields_path, bundled_ui_app_path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = CliRunner()
 
@@ -71,7 +70,9 @@ def test_extract_uses_bundled_fields_yaml_when_no_override_is_passed(
             output_dir_extract=tmp_path,
         ),
     )
-    monkeypatch.setattr(cli, "create_llm_text_client", lambda provider, model="": object())
+    monkeypatch.setattr(
+        cli, "create_llm_text_client", lambda provider, model="": object()
+    )
 
     class _FakeExtractor:
         def __init__(self, text_client) -> None:
@@ -126,7 +127,9 @@ def test_extract_dir_uses_bundled_fields_yaml_when_no_override_is_passed(
         "get_settings",
         lambda: SimpleNamespace(pdfs_dir=src_dir),
     )
-    monkeypatch.setattr(cli, "create_llm_text_client", lambda provider, model="": object())
+    monkeypatch.setattr(
+        cli, "create_llm_text_client", lambda provider, model="": object()
+    )
 
     class _FakeExtractor:
         def __init__(self, text_client) -> None:

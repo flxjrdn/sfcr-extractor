@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -50,7 +49,7 @@ class _StreamlitStub:
 def _load_ui_app(streamlit_stub: _StreamlitStub):
     module_name = "_test_sfcr_ui_app"
     sys.modules.pop(module_name, None)
-    sys.modules["streamlit"] = streamlit_stub
+    sys.modules["streamlit"] = streamlit_stub  # type: ignore
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -128,7 +127,9 @@ def test_render_metric_card_escapes_dynamic_values():
     assert kwargs == {"unsafe_allow_html": True}
 
 
-def test_main_initializes_default_db_before_listing_documents(monkeypatch, tmp_path: Path):
+def test_main_initializes_default_db_before_listing_documents(
+    monkeypatch, tmp_path: Path
+):
     streamlit_stub = _StreamlitStub()
     ui_app = _load_ui_app(streamlit_stub)
     db_path = tmp_path / "artifacts" / "sfcr.sqlite"

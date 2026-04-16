@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 import shutil
 import sqlite3
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
-from sfcr.db import connect, init_db, load_extractions_from_dir
+from sfcr.db import connect, init_db
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,9 +30,7 @@ def test_connect_enables_foreign_keys_for_writable_and_readonly_connections(
 
 
 @pytest.mark.parametrize("table_name", ["extractions", "summaries", "final_values"])
-def test_child_tables_enforce_document_foreign_keys(
-    tmp_path: Path, table_name: str
-):
+def test_child_tables_enforce_document_foreign_keys(tmp_path: Path, table_name: str):
     db_path = init_db(tmp_path / "sfcr.sqlite")
     con = connect(db_path)
     try:
@@ -226,115 +222,3 @@ def test_init_db_repairs_repo_default_database_snapshot(tmp_path: Path):
         assert con.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         con.close()
-
-
-def test_load_extractions_from_dir_serializes_structured_verifier_notes(tmp_path: Path):
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-    jsonl_path = out_dir / "doc.extractions.jsonl"
-    jsonl_path.write_text(
-        json.dumps(
-            {
-                "doc_id": "doc-1",
-                "field_id": "scr_total",
-                "status": "ok",
-                "verified": False,
-                "value_canonical": None,
-                "unit": "EUR",
-                "confidence": 0.35,
-                "evidence": [{"page": 7, "ref": None, "snippet_hash": "deadbeef"}],
-                "source_text": "SCR 390%",
-                "scale_applied": None,
-                "verifier_notes": [
-                    {"code": "value_not_found_in_source_text"},
-                    {"code": "ratio_mismatch"},
-                ],
-            },
-            ensure_ascii=False,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    db_path = tmp_path / "sfcr.sqlite"
-    init_db(db_path)
-    con = connect(db_path)
-    try:
-        con.execute(
-            """
-            INSERT INTO documents
-              (doc_id, year, company, display_name, pdf_path)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            ("doc-1", 2024, "ACME", "ACME (2024)", "/tmp/doc-1.pdf"),
-        )
-        con.commit()
-    finally:
-        con.close()
-
-    n_docs, n_rows = load_extractions_from_dir(out_dir=out_dir, db_path=db_path)
-
-    assert (n_docs, n_rows) == (1, 1)
-
-    con = connect(db_path, readonly=True)
-    try:
-        row = con.execute(
-            "SELECT page, issues FROM extractions WHERE doc_id = ? AND field_id = ?",
-            ("doc-1", "scr_total"),
-        ).fetchone()
-    finally:
-        con.close()
-
-    assert row is not None
-    assert row["page"] == 7
-    assert json.loads(row["issues"]) == [
-        {"code": "value_not_found_in_source_text"},
-        {"code": "ratio_mismatch"},
-    ]
-
-
-def test_load_extractions_from_dir_rejects_legacy_string_verifier_notes(
-    tmp_path: Path,
-):
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-    jsonl_path = out_dir / "doc.extractions.jsonl"
-    jsonl_path.write_text(
-        json.dumps(
-            {
-                "doc_id": "doc-1",
-                "field_id": "scr_total",
-                "status": "not_found",
-                "verified": False,
-                "value_canonical": None,
-                "unit": "EUR",
-                "confidence": 0.35,
-                "evidence": [{"page": 7, "ref": None, "snippet_hash": "deadbeef"}],
-                "source_text": "SCR nicht eindeutig",
-                "scale_applied": None,
-                "verifier_notes": "ratio_mismatch",
-            },
-            ensure_ascii=False,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    db_path = tmp_path / "sfcr.sqlite"
-    init_db(db_path)
-    con = connect(db_path)
-    try:
-        con.execute(
-            """
-            INSERT INTO documents
-              (doc_id, year, company, display_name, pdf_path)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            ("doc-1", 2024, "ACME", "ACME (2024)", "/tmp/doc-1.pdf"),
-        )
-        con.commit()
-    finally:
-        con.close()
-
-    with pytest.raises(ValidationError):
-        load_extractions_from_dir(out_dir=out_dir, db_path=db_path)

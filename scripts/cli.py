@@ -12,27 +12,33 @@ if (PROJECT_ROOT / "sfcr").is_dir():
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-import typer
-from rich import print
+import typer  # noqa: E402
+from rich import print  # noqa: E402
 
-from sfcr.db import init_db as db_init
-from sfcr.db import (
+from sfcr.config import get_settings  # noqa: E402
+from sfcr.db import init_db as db_init  # noqa: E402
+from sfcr.db import (  # noqa: E402
     load_catalog,
     load_extractions_from_dir,
     load_summaries_from_dir,
     rebuild_final_values,
 )
-from sfcr.eval.eval import evaluate, format_report, load_gold, load_preds
-from sfcr.eval.goldgen import generate_gold
-from sfcr.extract.batch import extract_directory
-from sfcr.extract.extractor import LLMExtractor, extract_for_document, write_jsonl
-from sfcr.llm.llm_text_client_factory import create_llm_text_client
-from sfcr.runtime_resources import bundled_fields_path, bundled_ui_app_path
-from sfcr.summarize.summarize import run_summarize
-
-from sfcr.config import get_settings
-from sfcr.ingest.schema import IngestionResult
-from sfcr.ingest.sfcr_ingest import SFCRIngestor
+from sfcr.eval.eval import evaluate, format_report, load_gold, load_preds  # noqa: E402
+from sfcr.eval.goldgen import generate_gold  # noqa: E402
+from sfcr.extract.batch import extract_directory  # noqa: E402
+from sfcr.extract.extractor import (  # noqa: E402
+    LLMExtractor,
+    extract_for_document,
+    write_jsonl,
+)
+from sfcr.ingest.schema import IngestionResult  # noqa: E402
+from sfcr.ingest.sfcr_ingest import SFCRIngestor  # noqa: E402
+from sfcr.llm.llm_text_client_factory import create_llm_text_client  # noqa: E402
+from sfcr.runtime_resources import (  # noqa: E402
+    bundled_fields_path,
+    bundled_ui_app_path,
+)
+from sfcr.summarize.summarize import run_summarize  # noqa: E402
 
 app = typer.Typer(add_completion=False, help="SFCR demo pipeline (lean CLI)")
 

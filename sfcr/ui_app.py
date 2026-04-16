@@ -128,7 +128,7 @@ def build_final_values_table_rows(
     for row in rows:
         val = row.get("value_canonical")
         unit = row.get("unit") or ""
-        value_display = format_value_de(val, unit)
+        value_display = format_value_de(val, str(unit))
 
         hint = ""
         source_type = row.get("source_type")

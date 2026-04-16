@@ -74,4 +74,3 @@ Erneute Verifikation in der aktuellen Workspace-Umgebung:
 
 Offene Rückfragen:
 - Keine.
-

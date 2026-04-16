@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 PACKAGE_ROOT = Path(__file__).resolve().parent
 
 
@@ -16,10 +15,6 @@ def bundled_manual_overrides_path() -> Path:
 
 def bundled_fields_path() -> Path:
     return PACKAGE_ROOT / "extract" / "fields.yaml"
-
-
-def bundled_policy_path() -> Path:
-    return PACKAGE_ROOT / "resources" / "policy.md"
 
 
 def bundled_ui_app_path() -> Path:

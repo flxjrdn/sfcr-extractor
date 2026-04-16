@@ -5,14 +5,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-Status = Literal["ok", "not_found", "ambiguous"]
-VerifierNoteCode = Literal[
-    "looks_like_prev_year_value",
-    "no_section",
-    "no_value_or_not_ok",
-    "ratio_mismatch",
-    "value_not_found_in_source_text",
-]
+Status = Literal["ok", "not_found"]
 
 MAX_LENGTH_SOURCE_TEXT = 600
 
@@ -52,12 +45,6 @@ class ExtractionLLM(BaseModel):
         return v or None
 
 
-class VerifierNote(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    code: VerifierNoteCode
-
-
 class VerifiedExtraction(BaseModel):
     """
     Post-verification, canonicalized to EUR or % with provenance.
@@ -75,21 +62,7 @@ class VerifiedExtraction(BaseModel):
     evidence: List[Evidence] = Field(default_factory=list)
     source_text: Optional[str] = None
     scale_applied: Optional[float] = None
-    verifier_notes: List[VerifierNote] = Field(default_factory=list)
-
-    @field_validator("verifier_notes")
-    @classmethod
-    def _dedupe_verifier_notes(
-        cls, notes: List[VerifierNote]
-    ) -> List[VerifierNote]:
-        seen: set[str] = set()
-        deduped: List[VerifierNote] = []
-        for note in notes:
-            if note.code in seen:
-                continue
-            seen.add(note.code)
-            deduped.append(note)
-        return deduped
+    verifier_notes: Optional[str] = None
 
     @model_validator(mode="after")
     def _check_consistency(self) -> "VerifiedExtraction":

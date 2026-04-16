@@ -29,7 +29,9 @@ class Settings(BaseSettings):
     def _expanduser(cls, v: Path) -> Path:
         return v.expanduser()
 
-    @field_validator("project_root", "data_dir", "pdfs_dir", "output_dir", mode="before")
+    @field_validator(
+        "project_root", "data_dir", "pdfs_dir", "output_dir", mode="before"
+    )
     @classmethod
     def _coerce_path(cls, v):
         # Accept strings from env and coerce; allow Path passthrough.

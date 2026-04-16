@@ -11,10 +11,7 @@ from sfcr.config import get_settings
 from sfcr.extract.schema import VerifiedExtraction
 from sfcr.final_values import merge_final_values
 from sfcr.manual_overrides import load_manual_overrides
-from sfcr.runtime_resources import (
-    bundled_catalog_path,
-    bundled_manual_overrides_path,
-)
+from sfcr.runtime_resources import bundled_catalog_path, bundled_manual_overrides_path
 
 # ---------- connection / schema ----------
 
@@ -23,7 +20,9 @@ def _enable_foreign_keys(con: sqlite3.Connection) -> None:
     con.execute("PRAGMA foreign_keys = ON")
     enabled = con.execute("PRAGMA foreign_keys").fetchone()[0]
     if enabled != 1:
-        raise sqlite3.OperationalError("SQLite foreign key enforcement could not be enabled")
+        raise sqlite3.OperationalError(
+            "SQLite foreign key enforcement could not be enabled"
+        )
 
 
 def _table_exists(con: sqlite3.Connection, table_name: str) -> bool:
@@ -34,7 +33,9 @@ def _table_exists(con: sqlite3.Connection, table_name: str) -> bool:
     return row is not None
 
 
-def _create_final_values_table(cur: sqlite3.Cursor, table_name: str = "final_values") -> None:
+def _create_final_values_table(
+    cur: sqlite3.Cursor, table_name: str = "final_values"
+) -> None:
     cur.execute(
         f"""
         CREATE TABLE IF NOT EXISTS {table_name} (
@@ -210,7 +211,9 @@ def _serialize_issues(issues: Any) -> Optional[str]:
         if not issues:
             return None
         return json.dumps(issues, ensure_ascii=False)
-    raise TypeError("issues must be structured data compatible with VerifiedExtraction.verifier_notes")
+    raise TypeError(
+        "issues must be structured data compatible with VerifiedExtraction.verifier_notes"
+    )
 
 
 def load_catalog(

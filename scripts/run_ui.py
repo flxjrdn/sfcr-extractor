@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UI_APP = PROJECT_ROOT / "sfcr" / "ui_app.py"
 INSECURE_LOCALHOST_ENV = "SFCR_UI_ALLOW_INSECURE_LOCALHOST"

@@ -12,7 +12,7 @@ from setuptools.build_meta import build_sdist
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib
+    import tomli
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -30,14 +30,16 @@ BUNDLED_RUNTIME_RESOURCES = {
     "sfcr/data/catalog.csv",
     "sfcr/data/manual_overrides.yaml",
     "sfcr/extract/fields.yaml",
-    "sfcr/resources/policy.md",
     "sfcr/ui_app.py",
 }
 
 
 def _load_project_table() -> dict:
     with (PROJECT_ROOT / "pyproject.toml").open("rb") as handle:
-        pyproject = tomllib.load(handle)
+        if "tomllib" in sys.modules:
+            pyproject = tomllib.load(handle)
+        else:
+            pyproject = tomli.load(handle)
     return pyproject["project"]
 
 
@@ -128,8 +130,7 @@ def test_runtime_dependencies_cover_actual_runtime_imports() -> None:
 def test_dev_extra_contains_pytest() -> None:
     project = _load_project_table()
     dev_dependency_names = {
-        _requirement_name(spec)
-        for spec in project["optional-dependencies"]["dev"]
+        _requirement_name(spec) for spec in project["optional-dependencies"]["dev"]
     }
 
     assert "pytest" in dev_dependency_names
@@ -156,9 +157,9 @@ def test_optional_runtime_imports_are_declared_via_matching_extras() -> None:
 def test_requirements_txt_delegates_to_dev_extra() -> None:
     lines = [
         line.strip()
-        for line in (PROJECT_ROOT / "requirements.txt").read_text(
-            encoding="utf-8"
-        ).splitlines()
+        for line in (PROJECT_ROOT / "requirements.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
 
@@ -172,7 +173,9 @@ def test_make_install_targets_use_documented_extras() -> None:
     assert "$(PYTHON) -m pip install -e '.[dev,openai]'" in makefile
 
 
-def test_devcontainer_uses_declared_requirements_without_manual_runtime_pip_installs() -> None:
+def test_devcontainer_uses_declared_requirements_without_manual_runtime_pip_installs() -> (
+    None
+):
     devcontainer = (PROJECT_ROOT / ".devcontainer" / "devcontainer.json").read_text(
         encoding="utf-8"
     )
@@ -197,7 +200,9 @@ def test_built_wheel_contains_all_bundled_runtime_resources(tmp_path: Path) -> N
     with zipfile.ZipFile(wheel_path) as wheel_zip:
         members = set(wheel_zip.namelist())
 
-    missing = sorted(resource for resource in BUNDLED_RUNTIME_RESOURCES if resource not in members)
+    missing = sorted(
+        resource for resource in BUNDLED_RUNTIME_RESOURCES if resource not in members
+    )
     assert missing == []
 
 
@@ -205,11 +210,7 @@ def test_built_sdist_contains_all_bundled_runtime_resources(tmp_path: Path) -> N
     sdist_path = _build_sdist(tmp_path)
 
     with tarfile.open(sdist_path, "r:gz") as sdist_tar:
-        members = {
-            member.name
-            for member in sdist_tar.getmembers()
-            if member.isfile()
-        }
+        members = {member.name for member in sdist_tar.getmembers() if member.isfile()}
 
     missing = sorted(
         resource

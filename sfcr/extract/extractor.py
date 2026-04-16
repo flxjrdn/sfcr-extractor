@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+import fitz  # PyMuPDF
 import yaml
 
 from sfcr.extract.schema import (
@@ -15,20 +15,12 @@ from sfcr.extract.schema import (
     ExtractionLLM,
     ResponseLLM,
     VerifiedExtraction,
-    VerifierNote,
 )
-from sfcr.extract.verify import _NO_SECTION, verify_extraction
+from sfcr.extract.verify import verify_extraction
 from sfcr.ingest.schema import IngestionResult
 from sfcr.llm.llm_text_client import LLMTextClient
-from sfcr.runtime_resources import bundled_fields_path
-from sfcr.utils.page_ranges import load_pdf_page_offset_info, resolve_pdf_page_span
+from sfcr.utils.pdf_page_offset import detect_pdf_page_offset
 from sfcr.utils.textnorm import normalize_hyphenation
-
-try:
-    import fitz  # PyMuPDF
-except Exception as e:  # pragma: no cover
-    fitz = None
-    _FITZ_IMPORT_ERROR = e
 
 # ---------- field taxonomy ----------
 
@@ -43,8 +35,7 @@ class FieldDef:
     notes: str | None
 
 
-def load_fields(path: Path | None = None) -> List[FieldDef]:
-    path = path or bundled_fields_path()
+def load_fields(path: Path) -> List[FieldDef]:
     rows = yaml.safe_load(path.read_text(encoding="utf-8"))
     out: List[FieldDef] = []
     for r in rows:
@@ -90,7 +81,6 @@ def extract_text_pages(pdf_path: Path, start: int, end: int) -> Tuple[str, List[
     """
     Return (joined_text, page_texts[]), inclusive 1-based pages.
     """
-    _ensure_fitz()
     doc = fitz.open(pdf_path)
     try:
         start0 = max(1, start) - 1
@@ -148,110 +138,6 @@ def _mk_snippet_hash(*parts: object, length: int = 16) -> str:
     return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:length]
 
 
-_EVIDENCE_WS_RE = re.compile(r"\s+")
-
-
-def _normalize_evidence_text(text: str) -> str:
-    return _EVIDENCE_WS_RE.sub(" ", normalize_hyphenation(text or "")).strip().lower()
-
-
-def _source_text_locators(source_text: str) -> List[str]:
-    normalized = _normalize_evidence_text(source_text)
-    if not normalized:
-        return []
-
-    locators: List[str] = []
-
-    def add(candidate: str, *, min_length: int = 8) -> None:
-        candidate = candidate.strip()
-        if len(candidate) < min_length or candidate in locators:
-            return
-        locators.append(candidate)
-
-    add(normalized)
-
-    if normalized.endswith("..."):
-        without_ellipsis = normalized[:-3].rstrip()
-        add(without_ellipsis)
-        for size in (160, 120, 80, 60):
-            add(without_ellipsis[:size], min_length=20)
-
-    return locators
-
-
-def _locate_evidence_page(
-    source_text: Optional[str], page_texts: Optional[List[str]], page_start: int
-) -> Optional[int]:
-    if not page_texts:
-        return None
-
-    locators = _source_text_locators(source_text or "")
-    if not locators:
-        return None
-
-    normalized_pages = [_normalize_evidence_text(page_text) for page_text in page_texts]
-    for locator in locators:
-        for idx, page_text in enumerate(normalized_pages):
-            if locator and locator in page_text:
-                return page_start + idx
-
-    return None
-
-
-def _page_text_for_evidence(
-    evidence: List[Evidence], page_texts: List[str], page_start: int
-) -> Optional[str]:
-    if not evidence:
-        return None
-
-    page_idx0 = evidence[0].page - page_start
-    if 0 <= page_idx0 < len(page_texts):
-        return page_texts[page_idx0]
-    return None
-
-
-_SII_RATIO_FIELD_ID = "sii_ratio_pct"
-_SII_RATIO_TOLERANCE = 0.2
-
-
-def _verified_numeric_value(
-    verified_by_field: dict[str, VerifiedExtraction],
-    field_id: str,
-    *,
-    unit: str,
-) -> Optional[float]:
-    row = verified_by_field.get(field_id)
-    if row is None or not row.verified or row.unit != unit or row.value_canonical is None:
-        return None
-    try:
-        return float(row.value_canonical)
-    except (TypeError, ValueError):
-        return None
-
-
-def _ratio_check_for_field(
-    field_id: str, verified_by_field: dict[str, VerifiedExtraction]
-) -> Optional[Tuple[float, float]]:
-    if field_id != _SII_RATIO_FIELD_ID:
-        return None
-
-    eof_total = _verified_numeric_value(verified_by_field, "eof_total", unit="EUR")
-    scr_total = _verified_numeric_value(verified_by_field, "scr_total", unit="EUR")
-    if eof_total is None or scr_total in (None, 0.0):
-        return None
-
-    expected_ratio = round(100.0 * eof_total / scr_total, 2)
-    return expected_ratio, _SII_RATIO_TOLERANCE
-
-
-@dataclass
-class _PendingVerification:
-    index: int
-    field: FieldDef
-    llm_out: ExtractionLLM
-    page_text_for_scale: Optional[str]
-
-
 @dataclass
 class LLMExtractor:
     """
@@ -267,12 +153,7 @@ class LLMExtractor:
     output_max_tokens: int = 400  # used by Ollama; OpenAI ignores in options
 
     def extract(
-        self,
-        field: FieldDef,
-        section_text: str,
-        page_start: int,
-        page_end: int,
-        page_texts: Optional[List[str]] = None,
+        self, field: FieldDef, section_text: str, page_start: int, page_end: int
     ) -> ExtractionLLM:
         prompt = self._build_prompt(field, section_text, page_start, page_end)
 
@@ -294,11 +175,7 @@ class LLMExtractor:
         if len(src_text) > MAX_LENGTH_SOURCE_TEXT:
             src_text = src_text[: MAX_LENGTH_SOURCE_TEXT - 3] + "..."
 
-        evidence_page = _locate_evidence_page(src_text or None, page_texts, page_start)
-        evidence = []
-        if evidence_page is not None:
-            sh = _mk_snippet_hash(src_text, field.id, evidence_page)
-            evidence = [Evidence(page=evidence_page, ref=None, snippet_hash=sh)]
+        sh = _mk_snippet_hash(src_text, field.id, page_start)
 
         return ExtractionLLM(
             field_id=field.id,
@@ -306,7 +183,7 @@ class LLMExtractor:
             value_unscaled=parsed.value_unscaled,
             unit=parsed.unit,
             scale=parsed.scale,
-            evidence=evidence,
+            evidence=[Evidence(page=page_start, ref=None, snippet_hash=sh)],
             source_text=src_text or None,
         )
 
@@ -319,7 +196,7 @@ You are an information extraction engine for German SFCR sections.
 
 Task:
 Extract exactly one value for the field below from the provided section text.
-If the value is not uniquely and explicitly present, set status to "not_found" or "ambiguous"
+If the value is not uniquely and explicitly present, set status to "not_found"
 and set all numeric fields to null.
 
 Field:
@@ -330,7 +207,7 @@ Field:
 - notes: {field.notes}
 
 Return ONLY one JSON object with EXACTLY these keys (always present):
-status, value_unscaled, scale, unit, source_text
+status, value_unscaled, scale, unit, source_text, scale_source, notes
 
 Definitions:
 - value_unscaled: the number as printed, WITHOUT applying scale and WITHOUT any thousands separators
@@ -347,8 +224,7 @@ Rules:
      treat X as current year and Y as previous year. Return X.
 3) Disambiguation:
    - Prefer a number that appears on the SAME LINE (or same table row) as one of the helpful_keywords.
-   - If no plausible candidate remains, set status="not_found".
-   - If multiple plausible candidates remain, set status="ambiguous".
+   - If multiple candidates remain, set status="not_found".
 4) Scale detection (set scale, do NOT multiply into value_unscaled):
    - If the relevant row/column/caption/nearby text indicates:
      * "EUR" or "€" -> scale = 1 (unless TEUR/Tsd/Mio/Mrd is stated)
@@ -381,14 +257,6 @@ def _section_span_for(
     return None
 
 
-def _ensure_fitz() -> None:
-    if fitz is None:  # pragma: no cover
-        raise RuntimeError(
-            "PyMuPDF (fitz) is required to extract text from PDF pages. "
-            "Install it with: pip install pymupdf"
-        ) from _FITZ_IMPORT_ERROR
-
-
 def extract_for_document(
     doc_id: str,
     pdf_path: Path,
@@ -405,30 +273,23 @@ def extract_for_document(
     )
     field_defs = load_fields(fields_yaml)
 
-    offset_info = load_pdf_page_offset_info(pdf_path)
-    page_count = offset_info.page_count
-    offset_arabic = offset_info.offset_arabic
-    offset_roman = offset_info.offset_roman
-    offset_confidence = offset_info.confidence
-
+    offset = detect_pdf_page_offset(str(pdf_path))
     print(f"Determining page offset for f{doc_id}")
-    print("PDF pages:", page_count)
-    print("Arabic offset:", offset_arabic)
-    print("Roman offset:", offset_roman)
-    print("Confidence:", offset_confidence)
+    print("PDF pages:", offset.page_count)
+    print("Arabic offset:", offset.offset_arabic)
+    print("Roman offset:", offset.offset_roman)
+    print("Confidence:", offset.confidence)
 
-    results: List[Optional[VerifiedExtraction]] = [None] * len(field_defs)
-    verified_by_field: dict[str, VerifiedExtraction] = {}
-    pending_ratio_verifications: list[_PendingVerification] = []
+    results: List[VerifiedExtraction] = []
 
-    for idx, f in enumerate(field_defs):
+    for f in field_defs:
         span = _subsection_span_for(f.subsection_hint, ingestion)
         if not span:
             letter = _letter_from_sub_hint(f.subsection_hint)
             span = _section_span_for(letter, ingestion)
         if not span:
             # no section → not found
-            results[idx] = (
+            results.append(
                 VerifiedExtraction(
                     doc_id=doc_id,
                     field_id=f.id,
@@ -440,18 +301,15 @@ def extract_for_document(
                     evidence=[],
                     source_text=None,
                     scale_applied=None,
-                    verifier_notes=[VerifierNote(code=_NO_SECTION)],
+                    verifier_notes="no_section",
                 )
             )
             continue
 
         start, end = span
-        start, end = resolve_pdf_page_span(
-            start,
-            end,
-            offset_arabic=offset_arabic,
-            page_count=page_count,
-        )
+        if offset.offset_arabic is not None:
+            start += offset.offset_arabic
+            end += offset.offset_arabic
 
         section_text, page_texts = extract_text_pages(pdf_path, start, end)
         section_text, page_texts = (
@@ -459,50 +317,27 @@ def extract_for_document(
             [normalize_hyphenation(page_text) for page_text in page_texts],
         )
         # LLM pass
-        llm_out = extractor.extract(
-            f, section_text, start, end, page_texts=page_texts
-        )
+        llm_out = extractor.extract(f, section_text, start, end)
 
-        # Only use page text that is backed by localized evidence.
-        page_text_for_scale = _page_text_for_evidence(llm_out.evidence, page_texts, start)
-
-        pending = _PendingVerification(
-            index=idx,
-            field=f,
-            llm_out=llm_out,
-            page_text_for_scale=page_text_for_scale,
+        # choose a page text to use for scale inference:
+        # use first evidence page if present, otherwise the first page of the span
+        ev_page = llm_out.evidence[0].page if llm_out.evidence else start
+        ev_idx0 = ev_page - start  # 0-based within page_texts for the full span
+        page_text_for_scale = (
+            page_texts[ev_idx0] if 0 <= ev_idx0 < len(page_texts) else None
         )
-        if f.id == _SII_RATIO_FIELD_ID:
-            pending_ratio_verifications.append(pending)
-            continue
 
         ver = verify_extraction(
             doc_id=doc_id,
             extr=llm_out,
-            expected_unit=f.unit,
             typical_scale=f.typical_scale,
             page_text_for_scale=page_text_for_scale,
             ratio_check=None,
         )
-        results[idx] = ver
-        if ver.verified:
-            verified_by_field[f.id] = ver
 
-    for pending in pending_ratio_verifications:
-        ratio_check = _ratio_check_for_field(pending.field.id, verified_by_field)
-        ver = verify_extraction(
-            doc_id=doc_id,
-            extr=pending.llm_out,
-            expected_unit=pending.field.unit,
-            typical_scale=pending.field.typical_scale,
-            page_text_for_scale=pending.page_text_for_scale,
-            ratio_check=ratio_check,
-        )
-        results[pending.index] = ver
-        if ver.verified:
-            verified_by_field[pending.field.id] = ver
+        results.append(ver)
 
-    return [result for result in results if result is not None]
+    return results
 
 
 def write_jsonl(rows: List[VerifiedExtraction], out_path: Path) -> None:

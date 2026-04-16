@@ -20,7 +20,7 @@ except Exception as e:  # pragma: no cover
 @dataclass
 class Section:
     section_id: str
-    # title: str #  TODO include title
+    # title: str
     start_page: int  # 1-based inclusive
     end_page: int  # 1-based inclusive
 
@@ -36,7 +36,7 @@ def _read_ingestion_sections(ingest_json: Path) -> List[Section]:
         sections.append(
             Section(
                 section_id=sec["section"],
-                # title=sec.get("title", sec["section_id"]), # TODO include title
+                # title=sec.get("title", sec["section_id"]),
                 start_page=int(sec["start_page"]),
                 end_page=int(sec["end_page"]),
             )
@@ -125,7 +125,7 @@ _SUMMARY_SYSTEM_INSTR = (
 def _section_prompt(section: Section) -> str:
     return (
         f"{_SUMMARY_SYSTEM_INSTR}\n\n"
-        # f"Abschnitt: {section.section_id} — {section.title}\n" # TODO include title
+        # f"Abschnitt: {section.section_id} — {section.title}\n"
         f"Abschnitt: {section.section_id}\n"
         f"Anweisungen:\n"
         f"- Fasse nur den gegebenen Kontext zusammen.\n"

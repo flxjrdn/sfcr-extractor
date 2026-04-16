@@ -12,7 +12,6 @@ from sfcr.extract.schema import (
     ExtractionLLM,
     VerifiedExtraction,
 )
-from sfcr.extract.verify import _NO_SECTION
 from sfcr.llm.llm_text_client import LLMTextClient
 from sfcr.runtime_resources import bundled_fields_path
 from sfcr.utils.page_ranges import PdfPageOffsetInfo
@@ -401,11 +400,11 @@ def test_llm_extractor_accepts_ambiguous_status_and_prompt_mentions_it():
     assert client.last_prompt is not None
     assert 'status to "not_found" or "ambiguous"' in client.last_prompt
     assert 'set status="ambiguous"' in client.last_prompt
+    assert "status, value_unscaled, scale, unit, source_text" in client.last_prompt
     assert (
-        "status, value_unscaled, scale, unit, source_text"
-        in client.last_prompt
+        "status, value_unscaled, scale, unit, source_text, scale_source, notes"
+        not in client.last_prompt
     )
-    assert "status, value_unscaled, scale, unit, source_text, scale_source, notes" not in client.last_prompt
 
 
 # ---------------------------
@@ -663,7 +662,7 @@ def test_extract_for_document_no_section_returns_not_found_verified_false(
     r = res[0]
     assert r.status == "not_found"
     assert r.verified is False
-    assert [note.code for note in r.verifier_notes] == [_NO_SECTION]
+    assert r.verifier_notes == "no_section"
     assert r.value_canonical is None
 
 
@@ -1002,7 +1001,7 @@ def test_extract_for_document_applies_ratio_check_end_to_end_for_ratio_fields(
     assert ratio_row.field_id == "sii_ratio_pct"
     assert ratio_row.verified is False
     assert ratio_row.confidence < 0.5
-    assert [note.code for note in ratio_row.verifier_notes] == ["ratio_mismatch"]
+    assert ratio_row.verifier_notes == "ratio_mismatch"
 
 
 def test_extract_for_document_skips_ratio_check_without_verified_base_values(

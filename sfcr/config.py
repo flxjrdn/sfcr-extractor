@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field, computed_field, field_validator
+from pydantic import Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,11 +24,14 @@ class Settings(BaseSettings):
     pdfs_dir: Path = Field(default=Path("data") / "sfcrs", env="SFCR_DATA")
     output_dir: Path = Field(default=Path("artifacts"), env="SFCR_OUTPUT")
 
-    @field_validator("data_dir", "pdfs_dir", "output_dir", mode="after")
+    @field_validator("project_root", "data_dir", "pdfs_dir", "output_dir", mode="after")
+    @classmethod
     def _expanduser(cls, v: Path) -> Path:
         return v.expanduser()
 
-    @field_validator("data_dir", "pdfs_dir", "output_dir", mode="before")
+    @field_validator(
+        "project_root", "data_dir", "pdfs_dir", "output_dir", mode="before"
+    )
     @classmethod
     def _coerce_path(cls, v):
         # Accept strings from env and coerce; allow Path passthrough.
@@ -43,38 +46,30 @@ class Settings(BaseSettings):
             return v.expanduser()
         return v
 
+    @model_validator(mode="after")
+    def _resolve_project_relative_paths(self) -> Settings:
+        self.project_root = self.project_root.resolve()
+        self.data_dir = self._resolve_path(self.data_dir)
+        self.pdfs_dir = self._resolve_path(self.pdfs_dir)
+        self.output_dir = self._resolve_path(self.output_dir)
+        return self
+
+    def _resolve_path(self, value: Path) -> Path:
+        if value.is_absolute():
+            return value.resolve()
+        return (self.project_root / value).resolve()
+
     @computed_field(return_type=Path)
     def output_dir_ingest(self) -> Path:
-        dir_ingest = self.output_dir / "ingest"
-        dir_ingest.mkdir(parents=True, exist_ok=True)
-        return dir_ingest
+        return self.output_dir / "ingest"
 
     @computed_field(return_type=Path)
     def output_dir_extract(self) -> Path:
-        dir_extract = self.output_dir / "extract"
-        dir_extract.mkdir(parents=True, exist_ok=True)
-        return dir_extract
+        return self.output_dir / "extract"
 
     @computed_field(return_type=Path)
     def output_dir_summaries(self) -> Path:
-        dir_summaries = self.output_dir / "summaries"
-        dir_summaries.mkdir(parents=True, exist_ok=True)
-        return dir_summaries
-
-    def model_post_init(self, __context) -> None:
-        # Resolve relative paths against project_root
-        if not self.data_dir:
-            self.data_dir = (self.project_root / self.data_dir).resolve()
-        if not self.pdfs_dir.is_absolute():
-            self.pdfs_dir = (self.project_root / self.pdfs_dir).resolve()
-        if not self.output_dir.is_absolute():
-            self.output_dir = (self.project_root / self.output_dir).resolve()
-
-        # Ensure output dir exists
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.output_dir_ingest.mkdir(parents=True, exist_ok=True)
-        self.output_dir_extract.mkdir(parents=True, exist_ok=True)
-        self.output_dir_summaries.mkdir(parents=True, exist_ok=True)
+        return self.output_dir / "summaries"
 
 
 # Lazy singleton

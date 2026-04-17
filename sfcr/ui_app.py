@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import pandas as pd
+import html
+
 import streamlit as st
 
 from sfcr.db import (
     db_path_default,
     get_final_values_for_doc,
     get_summaries_for_doc,
+    init_db,
     list_documents,
 )
 
@@ -87,11 +89,13 @@ def format_metric_value_compact(value: str | int | float | None, unit: str = "")
 
 
 def render_metric_card(title: str, value: str) -> None:
+    safe_title = html.escape(title, quote=True)
+    safe_value = html.escape(value, quote=True)
     st.markdown(
         f"""
         <div style=\"padding: 1rem 1.1rem; border: 1px solid rgba(128, 128, 128, 0.22); border-radius: 12px; background: rgba(128, 128, 128, 0.04); min-height: 92px;\">
-            <div style=\"font-size: 0.82rem; color: inherit; opacity: 0.75; margin-bottom: 0.35rem;\">{title}</div>
-            <div style=\"font-size: 1.5rem; font-weight: 600; color: inherit;\">{value}</div>
+            <div style=\"font-size: 0.82rem; color: inherit; opacity: 0.75; margin-bottom: 0.35rem;\">{safe_title}</div>
+            <div style=\"font-size: 1.5rem; font-weight: 600; color: inherit;\">{safe_value}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -115,6 +119,46 @@ def render_imprint_footer() -> None:
             """,
             unsafe_allow_html=True,
         )
+
+
+def build_final_values_table_rows(
+    rows: list[dict[str, str | int | float | None]],
+) -> list[dict[str, str]]:
+    table_rows: list[dict[str, str]] = []
+    for row in rows:
+        val = row.get("value_canonical")
+        unit = row.get("unit") or ""
+        value_display = format_value_de(val, str(unit))
+
+        hint = ""
+        source_type = row.get("source_type")
+        source_note = row.get("source_note") or ""
+
+        if source_type == "derived":
+            hint = "Abgeleitet"
+        elif source_type == "extracted":
+            hint = "Automatisch extrahiert"
+
+        if source_note:
+            hint = f"{hint} – {source_note}" if hint else str(source_note)
+
+        table_rows.append(
+            {
+                "Feld": display_field_name(str(row["field_id"])),
+                "Wert": value_display,
+                "Hinweise": hint,
+            }
+        )
+
+    return table_rows
+
+
+def render_final_values_table(table_rows: list[dict[str, str]]) -> None:
+    st.dataframe(
+        table_rows,
+        hide_index=True,
+        use_container_width=True,
+    )
 
 
 def main():
@@ -176,6 +220,7 @@ def main():
     st.title("SFCR Viewer")
 
     db_path = db_path_default()
+    init_db(db_path)
 
     # Documents sidebar
     docs = list_documents(db_path)
@@ -228,49 +273,11 @@ def main():
 
     st.markdown("### Kennzahlen")
 
-    table_rows = []
-    for r in rows:
-        val = r.get("value_canonical")
-        unit = r.get("unit") or ""
-        value_display = format_value_de(val, unit)
-
-        hint = ""
-        source_type = r.get("source_type")
-        source_note = r.get("source_note") or ""
-
-        if source_type == "derived":
-            hint = "Abgeleitet"
-        elif source_type == "extracted":
-            hint = "Automatisch extrahiert"
-
-        if source_note:
-            hint = f"{hint} – {source_note}" if hint else source_note
-
-        table_rows.append(
-            {
-                "Feld": display_field_name(r["field_id"]),
-                "Wert": value_display,
-                "Hinweise": hint,
-            }
-        )
-
-    df = pd.DataFrame(table_rows)
-
-    styled = df.style.set_properties(
-        subset=["Wert"],
-        **{
-            "text-align": "right",
-            "font-variant-numeric": "tabular-nums",
-            "white-space": "nowrap",
-        },
-    )
+    table_rows = build_final_values_table_rows(rows)
 
     summaries = get_summaries_for_doc(doc_id)
 
-    st.markdown(
-        styled.to_html(index=False),
-        unsafe_allow_html=True,
-    )
+    render_final_values_table(table_rows)
 
     st.markdown("### Zusammenfassungen")
     if not summaries:

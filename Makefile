@@ -31,7 +31,8 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  install             Install all dependencies in editable mode"
+	@echo "  install             Install base development dependencies in editable mode"
+	@echo "  install-openai      Install base development dependencies plus the OpenAI extra"
 	@echo "  test                Run unit tests with pytest"
 	@echo "  ingest              Run ingestion on sample PDF"
 	@echo "  ingest-dir          Run ingestion on all PDFs in folder"
@@ -47,7 +48,11 @@ help:
 # ---  Setup  -------------------------------------------------------
 install:
 	$(PYTHON) -m pip install --upgrade pip
-	$(PYTHON) -m pip install -e .[dev]
+	$(PYTHON) -m pip install -e '.[dev]'
+
+install-openai:
+	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install -e '.[dev,openai]'
 
 test:
 	pytest -q
@@ -79,7 +84,7 @@ summarize-dir:
 	$(PYTHON) scripts/cli.py summarize-dir --provider $(PROVIDER) --model $(MODEL)
 
 ui:
-	$(PYTHON) scripts/cli.py ui
+	$(PYTHON) scripts/run_ui.py
 
 db-init:
 	$(PYTHON) scripts/cli.py db-init
@@ -92,4 +97,4 @@ clean:
 	rm -rf __pycache__ .pytest_cache artifacts/ingest/*.json artifacts/*.json
 
 # These targets do not refer to files - always run them
-.PHONY: help install test ingest ingest-dir extract extract-dir eval gold summarize summarize-dir ui db-init db-load clean
+.PHONY: help install install-openai test ingest ingest-dir extract extract-dir eval gold summarize summarize-dir ui db-init db-load clean

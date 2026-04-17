@@ -5,29 +5,40 @@ import json
 import sys
 from pathlib import Path
 
-import typer
-from rich import print
+# Prefer the sibling checkout package tree when this script is run directly.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if (PROJECT_ROOT / "sfcr").is_dir():
+    project_root = str(PROJECT_ROOT)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
 
-from sfcr.db import init_db as db_init
-from sfcr.db import (
+import typer  # noqa: E402
+from rich import print  # noqa: E402
+
+from sfcr.config import get_settings  # noqa: E402
+from sfcr.db import init_db as db_init  # noqa: E402
+from sfcr.db import (  # noqa: E402
     load_catalog,
     load_extractions_from_dir,
     load_summaries_from_dir,
     rebuild_final_values,
 )
-from sfcr.eval.eval import evaluate, format_report, load_gold, load_preds
-from sfcr.eval.goldgen import generate_gold
-from sfcr.extract.batch import extract_directory
-from sfcr.extract.extractor import LLMExtractor, extract_for_document, write_jsonl
-from sfcr.llm.llm_text_client_factory import create_llm_text_client
-from sfcr.summarize.summarize import run_summarize
-
-# If not installed in editable mode, add repo root to PYTHONPATH
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from sfcr.config import get_settings
-from sfcr.ingest.schema import IngestionResult
-from sfcr.ingest.sfcr_ingest import SFCRIngestor
+from sfcr.eval.eval import evaluate, format_report, load_gold, load_preds  # noqa: E402
+from sfcr.eval.goldgen import generate_gold  # noqa: E402
+from sfcr.extract.batch import extract_directory  # noqa: E402
+from sfcr.extract.extractor import (  # noqa: E402
+    LLMExtractor,
+    extract_for_document,
+    write_jsonl,
+)
+from sfcr.ingest.schema import IngestionResult  # noqa: E402
+from sfcr.ingest.sfcr_ingest import SFCRIngestor  # noqa: E402
+from sfcr.llm.llm_text_client_factory import create_llm_text_client  # noqa: E402
+from sfcr.runtime_resources import (  # noqa: E402
+    bundled_fields_path,
+    bundled_ui_app_path,
+)
+from sfcr.summarize.summarize import run_summarize  # noqa: E402
 
 app = typer.Typer(add_completion=False, help="SFCR demo pipeline (lean CLI)")
 
@@ -35,6 +46,22 @@ app = typer.Typer(add_completion=False, help="SFCR demo pipeline (lean CLI)")
 def _sha256(p: Path) -> str:
     with p.open("rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
+
+
+def _resolve_fields_path(fields: Path | None) -> Path:
+    effective_fields = fields or bundled_fields_path()
+    if not effective_fields.exists():
+        typer.secho(f"fields.yaml not found: {effective_fields}", fg="red")
+        raise typer.Exit(1)
+    return effective_fields
+
+
+def _resolve_ui_app_path() -> Path:
+    ui_app = bundled_ui_app_path()
+    if not ui_app.exists():
+        typer.secho(f"ui_app.py not found: {ui_app}", fg="red")
+        raise typer.Exit(1)
+    return ui_app
 
 
 @app.command()
@@ -75,6 +102,7 @@ def ingest_dir(
     # Resolve effective paths
     effective_src: Path = src or cfg.pdfs_dir
     effective_out: Path = outdir or cfg.output_dir_ingest
+    effective_out.mkdir(parents=True, exist_ok=True)
 
     files = (
         [effective_src]
@@ -124,7 +152,7 @@ def extract(
     ),
     ingest_json: Path = typer.Option(None, help="Path to *.ingest.json for this PDF"),
     fields: Path = typer.Option(
-        None, help="Path to fields.yaml (default: sfcr/extract/fields.yaml)"
+        None, help="Path to fields.yaml (default: packaged sfcr/extract/fields.yaml)"
     ),
     out: Path = typer.Option(
         None,
@@ -151,11 +179,7 @@ def extract(
             raise typer.Exit(1)
         ingest_json = cand
 
-    if fields is None:
-        fields = Path("sfcr/extract/fields.yaml")
-        if not fields.exists():
-            typer.secho(f"fields.yaml not found: {fields}", fg="red")
-            raise typer.Exit(1)
+    fields = _resolve_fields_path(fields)
 
     if out is None:
         out = Path(cfg.output_dir_extract) / f"{doc_id}.extractions.jsonl"
@@ -171,7 +195,7 @@ def extract(
 def extract_dir(
     src: Path = typer.Argument(None, help="Directory of PDFs; defaults to SFCR_DATA"),
     fields: Path = typer.Option(
-        Path("sfcr/extract/fields.yaml"), help="Path to fields.yaml"
+        None, help="Path to fields.yaml (default: packaged sfcr/extract/fields.yaml)"
     ),
     provider: str = typer.Option("mock", help="LLM provider: openai | ollama | mock"),
     model: str = typer.Option("", help="Model for provider (e.g., 'mistral')"),
@@ -189,9 +213,7 @@ def extract_dir(
     if not src_dir.exists():
         typer.secho(f"Source dir not found: {src_dir}", fg="red")
         raise typer.Exit(1)
-    if not fields.exists():
-        typer.secho(f"fields.yaml not found: {fields}", fg="red")
-        raise typer.Exit(1)
+    fields = _resolve_fields_path(fields)
 
     llm = create_llm_text_client(provider, model=model)
     extractor = LLMExtractor(text_client=llm)
@@ -378,6 +400,7 @@ def db_init_cmd():
 
 @app.command("db-load")
 def db_load_cmd():
+    db_init()
     n_docs = load_catalog()
     print(f"[green]✓[/green] loaded {n_docs} documents")
 
@@ -400,8 +423,14 @@ def ui_cmd():
     import subprocess
     import sys
 
-    app = "tools/ui_app.py"
-    subprocess.run([sys.executable, "-m", "streamlit", "run", app], check=False)
+    app = _resolve_ui_app_path()
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "streamlit", "run", str(app)],
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise typer.Exit(exc.returncode) from exc
 
 
 if __name__ == "__main__":

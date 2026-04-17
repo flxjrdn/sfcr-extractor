@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sfcr.extract.schema import Evidence, ExtractionLLM
 from sfcr.extract.verify import (
+    _LOOKS_LIKE_PREV_YEAR_VALUE,
     _VALUE_NOT_FOUND_IN_SOURCE_TEXT,
     _coerce_scale,
     apply_scale,
@@ -9,6 +10,10 @@ from sfcr.extract.verify import (
     extract_numbers_de,
     verify_extraction,
 )
+
+
+def _note_codes(out) -> list[str]:
+    return out.verifier_notes
 
 
 def _mk_extr(
@@ -89,34 +94,42 @@ def test_verify_gate_not_ok_or_missing_value():
     out = verify_extraction(doc_id="d", extr=extr, typical_scale=1000.0)
     assert out.verified is False
     assert out.value_canonical is None
-    assert out.verifier_notes == "no_value_or_not_ok"
+    assert _note_codes(out) == "no_value_or_not_ok"
 
     extr2 = _mk_extr(status="ok", value_unscaled=None)
     out2 = verify_extraction(doc_id="d", extr=extr2, typical_scale=1000.0)
     assert out2.verified is False
-    assert out2.verifier_notes == "no_value_or_not_ok"
+    assert _note_codes(out2) == "no_value_or_not_ok"
+
+    extr3 = _mk_extr(
+        status="not_found",
+        value_unscaled=None,
+        unit=None,
+        scale=None,
+        source_text="SCR 10 TEUR, alternativ SCR 12 TEUR",
+    )
+    out3 = verify_extraction(doc_id="d", extr=extr3, typical_scale=1000.0)
+    assert out3.status == "not_found"
+    assert out3.verified is False
+    assert out3.value_canonical is None
+    assert _note_codes(out3) == "no_value_or_not_ok"
 
 
-def test_verify_prefers_model_scale_when_allowed():
-    # Model provides scale=1000, typical_scale is different; should use model scale
+def test_verify_uses_model_scale_as_fallback_without_evidence_signal():
     extr = _mk_extr(
-        field_id="mcr_total",
-        value_unscaled=123.0,
+        field_id="scr_total",
+        value_unscaled=10.0,
         unit="EUR",
         scale=1000.0,
-        source_text="MCR 123 TEUR",
+        source_text="SCR 10",
     )
     out = verify_extraction(doc_id="d", extr=extr, typical_scale=1_000_000.0)
     assert out.scale_applied == 1000.0
-    assert out.value_canonical == 123_000.0
-    assert (
-        out.confidence >= 0.5
-    )  # usually yes (row/caption/nearby depends on infer_scale)
+    assert out.value_canonical == 10_000.0
     assert out.verified is True
 
 
 def test_verify_ignores_model_scale_if_not_allowed_and_uses_inferred_or_default():
-    # scale=1234 is not allowed -> ignored; should fall back to inferred (row TEUR) or typical/default
     extr = _mk_extr(
         field_id="scr_total",
         value_unscaled=10.0,
@@ -158,8 +171,7 @@ def test_verify_value_not_found_in_source_text_penalizes_confidence():
         source_text="Der Wert beträgt 123 456 TEUR.",
     )
     out = verify_extraction(doc_id="d", extr=extr, typical_scale=1000.0)
-    assert out.verifier_notes is not None
-    assert _VALUE_NOT_FOUND_IN_SOURCE_TEXT in out.verifier_notes
+    assert _note_codes(out) == _VALUE_NOT_FOUND_IN_SOURCE_TEXT
     assert out.confidence < 0.5
     assert out.verified is False
 
@@ -173,8 +185,7 @@ def test_verify_detects_prev_year_value_selected():
         source_text="Die Mindestkapitalanforderung beträgt 123 456 (133 333) TEUR.",
     )
     out = verify_extraction(doc_id="d", extr=extr, typical_scale=1000.0)
-    assert out.verifier_notes is not None
-    assert "looks_like_prev_year_value" in out.verifier_notes
+    assert _note_codes(out) == _LOOKS_LIKE_PREV_YEAR_VALUE
     assert out.confidence < 0.5
     assert out.verified is False
 
@@ -206,5 +217,20 @@ def test_verify_ratio_check_adds_mismatch_note():
     out = verify_extraction(
         doc_id="d", extr=extr, typical_scale=None, ratio_check=(391.0, 0.2)
     )
-    assert out.verifier_notes is not None
-    assert "ratio_mismatch" in out.verifier_notes
+    assert "Verhältnis" in _note_codes(out)
+
+
+def test_verify_returns_structured_verifier_notes_in_order():
+    extr = _mk_extr(
+        field_id="sii_ratio_pct",
+        value_unscaled=390.0,
+        unit="%",
+        scale=None,
+        source_text="Solvabilitätsquote 389%",
+    )
+    out = verify_extraction(
+        doc_id="d", extr=extr, typical_scale=None, ratio_check=(391.0, 0.2)
+    )
+
+    assert _VALUE_NOT_FOUND_IN_SOURCE_TEXT in _note_codes(out)
+    assert "Verhältnis" in _note_codes(out)

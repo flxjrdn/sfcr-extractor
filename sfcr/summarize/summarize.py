@@ -5,17 +5,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List
 
-import fitz  # PyMuPDF
-
 from sfcr.llm.llm_text_client import LLMTextClient
 from sfcr.llm.llm_text_client_factory import create_llm_text_client
+from sfcr.utils.page_ranges import load_pdf_page_offset_info, resolve_pdf_page_span
 from sfcr.utils.textnorm import normalize_hyphenation
+
+try:
+    import fitz  # PyMuPDF
+except Exception as e:  # pragma: no cover
+    fitz = None
+    _FITZ_IMPORT_ERROR = e
 
 
 @dataclass
 class Section:
     section_id: str
-    # title: str #  TODO include title
+    # title: str
     start_page: int  # 1-based inclusive
     end_page: int  # 1-based inclusive
 
@@ -31,7 +36,7 @@ def _read_ingestion_sections(ingest_json: Path) -> List[Section]:
         sections.append(
             Section(
                 section_id=sec["section"],
-                # title=sec.get("title", sec["section_id"]), # TODO include title
+                # title=sec.get("title", sec["section_id"]),
                 start_page=int(sec["start_page"]),
                 end_page=int(sec["end_page"]),
             )
@@ -43,8 +48,33 @@ def _read_ingestion_sections(ingest_json: Path) -> List[Section]:
     return sections
 
 
+def _resolve_sections_to_pdf_pages(
+    sections: Iterable[Section],
+    *,
+    offset_arabic: int | None,
+    page_count: int | None,
+) -> List[Section]:
+    resolved: List[Section] = []
+    for sec in sections:
+        start_page, end_page = resolve_pdf_page_span(
+            sec.start_page,
+            sec.end_page,
+            offset_arabic=offset_arabic,
+            page_count=page_count,
+        )
+        resolved.append(
+            Section(
+                section_id=sec.section_id,
+                start_page=start_page,
+                end_page=end_page,
+            )
+        )
+    return resolved
+
+
 def _extract_text_for_pages(pdf: Path, start_page: int, end_page: int) -> str:
     """Concatenate text for [start_page..end_page] (1-based, inclusive)."""
+    _ensure_fitz()
     doc = fitz.open(pdf)
     try:
         parts: List[str] = []
@@ -55,6 +85,14 @@ def _extract_text_for_pages(pdf: Path, start_page: int, end_page: int) -> str:
         return normalize_hyphenation(raw)
     finally:
         doc.close()
+
+
+def _ensure_fitz() -> None:
+    if fitz is None:  # pragma: no cover
+        raise RuntimeError(
+            "PyMuPDF (fitz) is required to summarize PDF pages. "
+            "Install it with: pip install pymupdf"
+        ) from _FITZ_IMPORT_ERROR
 
 
 def _chunk_text(s: str, max_chars: int = 12000, overlap: int = 800) -> List[str]:
@@ -87,7 +125,7 @@ _SUMMARY_SYSTEM_INSTR = (
 def _section_prompt(section: Section) -> str:
     return (
         f"{_SUMMARY_SYSTEM_INSTR}\n\n"
-        # f"Abschnitt: {section.section_id} — {section.title}\n" # TODO include title
+        # f"Abschnitt: {section.section_id} — {section.title}\n"
         f"Abschnitt: {section.section_id}\n"
         f"Anweisungen:\n"
         f"- Fasse nur den gegebenen Kontext zusammen.\n"
@@ -201,6 +239,12 @@ def run_summarize(
 ) -> Path:
     llm = create_llm_text_client(provider=provider, model=model)
     sections = _read_ingestion_sections(ingest_json)
+    offset_info = load_pdf_page_offset_info(pdf_path)
+    sections = _resolve_sections_to_pdf_pages(
+        sections,
+        offset_arabic=offset_info.offset_arabic,
+        page_count=offset_info.page_count,
+    )
     write_summaries_jsonl(out_jsonl, doc_id, sections, pdf_path, llm)
     return out_jsonl
 

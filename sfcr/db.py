@@ -8,10 +8,107 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from sfcr.config import get_settings
+from sfcr.extract.schema import VerifiedExtraction
 from sfcr.final_values import merge_final_values
 from sfcr.manual_overrides import load_manual_overrides
+from sfcr.runtime_resources import bundled_catalog_path, bundled_manual_overrides_path
 
 # ---------- connection / schema ----------
+
+
+def _enable_foreign_keys(con: sqlite3.Connection) -> None:
+    con.execute("PRAGMA foreign_keys = ON")
+    enabled = con.execute("PRAGMA foreign_keys").fetchone()[0]
+    if enabled != 1:
+        raise sqlite3.OperationalError(
+            "SQLite foreign key enforcement could not be enabled"
+        )
+
+
+def _table_exists(con: sqlite3.Connection, table_name: str) -> bool:
+    row = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def _create_final_values_table(
+    cur: sqlite3.Cursor, table_name: str = "final_values"
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            doc_id TEXT NOT NULL,
+            field_id TEXT NOT NULL,
+            value_canonical REAL,
+            unit TEXT,
+            verified INTEGER NOT NULL,
+            source_type TEXT NOT NULL,
+            source_note TEXT,
+            PRIMARY KEY (doc_id, field_id),
+            FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+        );
+        """
+    )
+
+
+def _final_values_has_document_fk(con: sqlite3.Connection) -> bool:
+    rows = con.execute("PRAGMA foreign_key_list(final_values)").fetchall()
+    return any(
+        row["table"] == "documents"
+        and row["from"] == "doc_id"
+        and str(row["on_delete"]).upper() == "CASCADE"
+        for row in rows
+    )
+
+
+def _ensure_final_values_schema(con: sqlite3.Connection) -> None:
+    cur = con.cursor()
+    if not _table_exists(con, "final_values"):
+        _create_final_values_table(cur)
+        return
+
+    if _final_values_has_document_fk(con):
+        return
+
+    _create_final_values_table(cur, "final_values__new")
+    cur.execute(
+        """
+        INSERT INTO final_values__new (
+            doc_id,
+            field_id,
+            value_canonical,
+            unit,
+            verified,
+            source_type,
+            source_note
+        )
+        SELECT
+            fv.doc_id,
+            fv.field_id,
+            fv.value_canonical,
+            fv.unit,
+            fv.verified,
+            fv.source_type,
+            fv.source_note
+        FROM final_values AS fv
+        INNER JOIN documents AS d ON d.doc_id = fv.doc_id
+        """
+    )
+    cur.execute("DROP TABLE final_values")
+    cur.execute("ALTER TABLE final_values__new RENAME TO final_values")
+
+
+def _delete_orphan_rows(con: sqlite3.Connection, table_name: str) -> None:
+    if not _table_exists(con, table_name):
+        return
+    con.execute(
+        f"""
+        DELETE FROM {table_name}
+        WHERE doc_id NOT IN (SELECT doc_id FROM documents)
+        """
+    )
 
 
 def db_path_default() -> Path:
@@ -27,6 +124,7 @@ def connect(db_path: Optional[Path] = None, readonly=False) -> sqlite3.Connectio
     else:
         con = sqlite3.connect(str(db))
     con.row_factory = sqlite3.Row
+    _enable_foreign_keys(con)
     return con
 
 
@@ -81,18 +179,9 @@ def init_db(db_path: Optional[Path] = None) -> Path:
     );
     """)
     # final values: one row per (doc_id, field_id); this also takes into account manually extracted values
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS final_values (
-        doc_id TEXT NOT NULL,
-        field_id TEXT NOT NULL,
-        value_canonical REAL,
-        unit TEXT,
-        verified INTEGER NOT NULL,
-        source_type TEXT NOT NULL,
-        source_note TEXT,
-        PRIMARY KEY (doc_id, field_id)
-    );
-    """)
+    _ensure_final_values_schema(con)
+    for table_name in ("extractions", "summaries", "final_values"):
+        _delete_orphan_rows(con, table_name)
     # convenience view
     cur.execute("DROP VIEW IF EXISTS current_verified;")
     cur.execute("""
@@ -134,6 +223,8 @@ def load_catalog(
 
     cfg = get_settings()
     catalog_path = csv_path or cfg.data_dir / "catalog.csv"
+    if csv_path is None and not Path(catalog_path).exists():
+        catalog_path = bundled_catalog_path()
 
     with Path(catalog_path).open("r", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
@@ -229,11 +320,12 @@ def load_extractions_from_dir(
                 if not line.strip():
                     continue
                 j = json.loads(line)
-                ev = j.get("evidence") or []
+                extraction = VerifiedExtraction.model_validate(j)
+                ev = extraction.evidence
                 page = None
                 if isinstance(ev, list) and ev:
-                    page = ev[0].get("page")
-                issues = j.get("verifier_notes")
+                    page = ev[0].page
+                issues = extraction.model_dump(exclude_none=True).get("verifier_notes")
                 cur.execute(
                     """
                     INSERT INTO extractions
@@ -252,17 +344,17 @@ def load_extractions_from_dir(
                       updated_at=datetime('now');
                     """,
                     (
-                        j["doc_id"],
-                        j["field_id"],
-                        j.get("value_canonical"),
-                        j.get("unit"),
-                        1 if j.get("verified") else 0,
-                        j.get("confidence"),
+                        extraction.doc_id,
+                        extraction.field_id,
+                        extraction.value_canonical,
+                        extraction.unit,
+                        1 if extraction.verified else 0,
+                        extraction.confidence,
                         page,
-                        j.get("status"),
+                        extraction.status,
                         issues,
-                        j.get("source_text"),
-                        j.get("scale_applied"),
+                        extraction.source_text,
+                        extraction.scale_applied,
                     ),
                 )
                 n_rows += 1
@@ -363,7 +455,9 @@ def rebuild_final_values(
     overrides_path: Path | None = None,
 ) -> int:
     dbp = db_path or db_path_default()
-    overrides_file = overrides_path or Path("data/manual_overrides.yaml")
+    overrides_file = overrides_path or get_settings().data_dir / "manual_overrides.yaml"
+    if overrides_path is None and not overrides_file.exists():
+        overrides_file = bundled_manual_overrides_path()
 
     manual_overrides = load_manual_overrides(overrides_file)
 

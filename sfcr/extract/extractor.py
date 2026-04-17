@@ -196,7 +196,7 @@ You are an information extraction engine for German SFCR sections.
 
 Task:
 Extract exactly one value for the field below from the provided section text.
-If the value is not uniquely and explicitly present, set status to "not_found" or "ambiguous"
+If the value is not uniquely and explicitly present, set status to "not_found"
 and set all numeric fields to null.
 
 Field:
@@ -224,7 +224,7 @@ Rules:
      treat X as current year and Y as previous year. Return X.
 3) Disambiguation:
    - Prefer a number that appears on the SAME LINE (or same table row) as one of the helpful_keywords.
-   - If multiple candidates remain, set status="ambiguous".
+   - If multiple candidates remain, set status="not_found".
 4) Scale detection (set scale, do NOT multiply into value_unscaled):
    - If the relevant row/column/caption/nearby text indicates:
      * "EUR" or "€" -> scale = 1 (unless TEUR/Tsd/Mio/Mrd is stated)

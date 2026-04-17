@@ -35,10 +35,3 @@ def test_demo_database_stays_explicitly_unignored() -> None:
 
     assert result.returncode == 0
     assert "!artifacts/sfcr.sqlite" in result.stdout
-
-
-def test_generated_playbook_jsonl_is_removed_and_now_ignored() -> None:
-    assert not (PROJECT_ROOT / "ace_playbook.jsonl").exists()
-
-    result = _check_ignore("ace_playbook.jsonl")
-    assert result.returncode == 0

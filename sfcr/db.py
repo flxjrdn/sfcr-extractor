@@ -204,18 +204,6 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _serialize_issues(issues: Any) -> Optional[str]:
-    if issues is None:
-        return None
-    if isinstance(issues, (list, dict)):
-        if not issues:
-            return None
-        return json.dumps(issues, ensure_ascii=False)
-    raise TypeError(
-        "issues must be structured data compatible with VerifiedExtraction.verifier_notes"
-    )
-
-
 def load_catalog(
     csv_path: Optional[Path] = None, db_path: Optional[Path] = None
 ) -> int:
@@ -337,9 +325,7 @@ def load_extractions_from_dir(
                 page = None
                 if isinstance(ev, list) and ev:
                     page = ev[0].page
-                issues = _serialize_issues(
-                    extraction.model_dump(exclude_none=True)["verifier_notes"]
-                )
+                issues = extraction.model_dump(exclude_none=True).get("verifier_notes")
                 cur.execute(
                     """
                     INSERT INTO extractions
